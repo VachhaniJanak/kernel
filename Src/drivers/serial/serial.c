@@ -1,0 +1,40 @@
+#include <platform/attributes.h>
+#include <stdarg.h>
+#include <stdint.h>
+#include <utils/printf.h>
+
+static inline void outb(uint16_t port, uint8_t val) {
+  __asm__ volatile("outb %0, %1" : : "a"(val), "Nd"(port));
+}
+
+static inline uint8_t inb(uint16_t port) {
+  uint8_t ret;
+  __asm__ volatile("inb %1, %0" : "=a"(ret) : "Nd"(port));
+  return ret;
+}
+
+void serial_init(void) {
+  outb(0x3F8 + 1, 0x00); // Disable interrupts
+  outb(0x3F8 + 3, 0x80); // Enable DLAB
+  outb(0x3F8 + 0, 0x03); // Set baud rate divisor to 3 (38400 baud)
+  outb(0x3F8 + 1, 0x00);
+  outb(0x3F8 + 3, 0x03); // 8 bits, no parity, one stop bit
+  outb(0x3F8 + 2, 0xC7); // Enable FIFO
+  outb(0x3F8 + 4, 0x0B); // IRQs enabled, RTS/DSR set
+}
+
+static void _serial_putchar(char character, void *arg) {
+  UNUSED(arg);
+  while (!(inb(0x3F8 + 5) & 0x20))
+    ; // Wait for empty transmit buffer
+  outb(0x3F8, character);
+}
+
+int serial_printf(const char *format, ...) {
+  va_list va;
+  va_start(va, format);
+  char buffer[1];
+  const int ret = fctprintf(_serial_putchar, buffer, format, va);
+  va_end(va);
+  return ret;
+}

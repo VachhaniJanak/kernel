@@ -1,0 +1,10 @@
+#ides
+.cache
+.idea
+.vscode
+
+# Compiled object files
+build
+
+#others
+test
