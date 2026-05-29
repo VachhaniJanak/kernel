@@ -5,21 +5,20 @@ SECTIONS {
   _kernel_phy_st = .;
 
   .startuptext : {
-    *(.multiboot)
-    *startup.S.o (.text)
-  }
+    KEEP(*(.multiboot))
+    *(.boot.text)
+  }                                     
 
   .startuprodata : {
-    *startup.S.o (.rodata)
+    *(.boot.rodata)
   }
 
   .startupdata : {
-    *startup.S.o (.data)
+    *(.boot.data)
   }
 
   .startupbss : {
-    *startup.S.o (.bss)
-    *startup.S.o (COMMON)
+    *(.boot.bss)
   }
   
   . = ALIGN(0x1000);

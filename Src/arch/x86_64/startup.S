@@ -18,7 +18,7 @@
 #define KERNEL_CR4 (CONTROL_REGISTER4_PHYSICAL_ADDRESS_EXTENSION)
 
 .code32
-.section .bss
+.section .boot.bss, "aw", @nobits
 .align PML4_ALIGNMENT
 pml4:
     .zero PML4_SIZE
@@ -43,7 +43,7 @@ high_page_directory_table:
 tmp_stack:
     .zero KERNEL_BOOT_STACK_SIZE
 
-.section .data
+.section .boot.data, "aw", @progbits
 boot_info_base:
 boot_magic:    .long 0
 boot_mbi_ptr:  .long 0
@@ -67,7 +67,7 @@ gdt_ptr:
  .short GDT_TABLE_SIZE - 1
  .quad gdt_table
 
-.section .text
+.section .boot.text, "ax", @progbits
 .global _start
 .type _start, @function
 _start:

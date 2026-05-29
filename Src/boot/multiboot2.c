@@ -10,7 +10,7 @@ struct mb2_header {
   struct multiboot_header_tag MB_TAG_ALIGN end_tag;
 };
 
-struct mb2_header header_data MB_SECTION = {
+struct mb2_header mb2_header_data MB_SECTION = {
     .header = {.magic = MULTIBOOT2_HEADER_MAGIC,
                .architecture = 0,
                .header_length = sizeof(struct mb2_header),
