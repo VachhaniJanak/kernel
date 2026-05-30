@@ -1,11 +1,10 @@
 #include <kernel.h>
-// #include "arch/x86_64/gdt.h"
 #include <arch/x86_64/idt.h>
-// #include "driver/screen.h"
 #include <boot/multiboot2.h>
 #include <drivers/serial/serial.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <stddef.h>
 #include <utils/log.h>
 
 void PageFaultHandler(void) {
@@ -38,22 +37,24 @@ void GeneralProtectionFaultHandler(void) {
     ;
 }
 
-void kmain(struct boot_info_base *ptr) {
+void kmain(unsigned long magic, void *mbi) {
   serial_init();
 
   LOG_INFO("Kmain running......");
 
-  if (ptr->magic != MULTIBOOT2_BOOTLOADER_MAGIC) {
-    LOG_ERROR("Invalid magic number: 0x%x\n", (unsigned)(ptr->magic));
+  if (magic != MULTIBOOT2_BOOTLOADER_MAGIC) {
+    LOG_ERROR("Invalid magic number: 0x%x\n", magic);
+    return;
+  }
+  
+  if ((uint64_t)mbi & 7) {
+    LOG_ERROR("Unaligned mbi: 0x%x\n", (uintptr_t)mbi);
     return;
   }
 
-  if (ptr->mbi_ptr & 7) {
-    LOG_ERROR("Unaligned mbi: 0x%x\n", ptr->mbi_ptr);
-    return;
-  }
+  LOG_INFO("Multiboot2 info structure at 0x%p", mbi);
 
-  // if (!init_screen(ptr->mbi_ptr)) {
+  // if (!init_screen((struct multiboot_info *)mbi)) {
   //   serial_printf("Screen initilization faild!\n");
   //   return;
   // }
@@ -61,7 +62,7 @@ void kmain(struct boot_info_base *ptr) {
   // LOG_INFO("GDT Addr : 0x%p\n",((struct GDTRTypedef *)ptr->gdt_info)->base);
   // LOG_INFO("GDT Addr : 0x%p\n",((struct GDTRTypedef *)ptr->gdt_info)->limit);
 
-  init_idt();
+  // init_idt();
   LOG_INFO("After init_id\n");
 
   // struct multiboot_tag_mmap *mmap_ptr = NULL;

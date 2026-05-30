@@ -1,9 +1,9 @@
 #pragma once
 
-// #define BOOT_TEXT_SECTIONS __attribute__((section(".boot.text")))
-// #define BOOT_DATA_SECTIONS __attribute__((section(".boot.data")))
-// #define BOOT_RODATA_SECTIONS __attribute__((section(".boot.rodata")))
-// #define BOOT_BSS_SECTIONS __attribute__((section(".boot.bss")))
+#define BOOT_TEXT_SECTION __attribute__((section(".boot.text")))
+#define BOOT_DATA_SECTION __attribute__((section(".boot.data")))
+#define BOOT_RODATA_SECTION __attribute__((section(".boot.rodata")))
+#define BOOT_BSS_SECTION __attribute__((section(".boot.bss")))
 
 #if defined(__GNUC__)
 #ifndef WEAK

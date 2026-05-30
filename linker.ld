@@ -2,7 +2,7 @@ ENTRY(_start)
 
 SECTIONS {
   . = 4M;
-  _kernel_phy_st = .;
+  __phy_addr_st = .;
 
   .startuptext : {
     KEEP(*(.multiboot))
@@ -22,12 +22,12 @@ SECTIONS {
   }
   
   . = ALIGN(0x1000);
-  _startup_ed = .;
+  _boot_sec_ed = .;
 
   . += 0xFFFFFFFF80000000;
-  _kernel_vir_st = .;
+  __virt_addr_st = .;
 
-  .text : AT(_startup_ed) {
+  .text : AT(_boot_sec_ed) {
     *(.text)
   }
   . = ALIGN(0x1000);
@@ -48,6 +48,6 @@ SECTIONS {
   }
   . = ALIGN(0x1000);
 
-  _kernel_vir_ed = .;
-  _kernel_phy_ed = (LOADADDR (.bss) + SIZEOF (.bss) + 0xFFF) & 0xFFFFFFFFFFFFF000;
+  __virt_addr_ed = .;
+  __phy_addr_ed = (LOADADDR (.bss) + SIZEOF (.bss) + 0xFFF) & 0xFFFFFFFFFFFFF000;
 }

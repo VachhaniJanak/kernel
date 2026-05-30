@@ -7,6 +7,7 @@
 struct mb2_header {
   struct multiboot_header header;
   struct multiboot_header_tag_framebuffer MB_TAG_ALIGN frame;
+  struct multiboot_header_tag MB_TAG_ALIGN efi_services;
   struct multiboot_header_tag MB_TAG_ALIGN end_tag;
 };
 
@@ -24,5 +25,9 @@ struct mb2_header mb2_header_data MB_SECTION = {
               .width = 1280,
               .height = 800,
               .depth = 32},
+
+    .efi_services = {.type = MULTIBOOT_HEADER_TAG_EFI_BS,
+                     .flags = 0,
+                     .size = sizeof(struct multiboot_header_tag)},
 
     .end_tag = {.type = MULTIBOOT_HEADER_TAG_END, .flags = 0, .size = 8}};

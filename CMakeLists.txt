@@ -27,6 +27,7 @@ target_compile_options(${CMAKE_PROJECT_NAME}.elf PRIVATE
 
     # Freestanding
     -ffreestanding
+    -fno-pic
     -fno-stack-protector
     -fno-stack-check
     -mno-red-zone
@@ -34,9 +35,10 @@ target_compile_options(${CMAKE_PROJECT_NAME}.elf PRIVATE
     -fno-builtin
     -mgeneral-regs-only
     -mcmodel=kernel
+    # -m64
+
 
     # Warnings
-    -Wno-zero-length-array
     -Wall
     -Wextra
     -Winline
@@ -47,7 +49,7 @@ target_compile_options(${CMAKE_PROJECT_NAME}.elf PRIVATE
     -MMD
 
     # Assembler
-    -Wa,--divide
+    # -Wa,--divide
 
     # Optimization
     -O0 -g3
@@ -77,8 +79,8 @@ target_include_directories(${CMAKE_PROJECT_NAME}.elf PRIVATE
 # Sources
 target_sources(${CMAKE_PROJECT_NAME}.elf PRIVATE
     Src/boot/multiboot2.c
-    # Src/boot/boot.c
-    Src/arch/x86_64/startup.S
+    Src/arch/x86_64/boot.c
+
     Src/kernel.c
 
     Src/utils/printf.c
