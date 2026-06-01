@@ -1,6 +1,8 @@
 #ifndef _ARCH_X86_64_GDT_H_
 #define _ARCH_X86_64_GDT_H_
 
+#include <stdint.h>
+
 #define GDT_ENTRY_SIZE 8
 #define GDT_FIRST_ENTRY 0
 #define GDT_TABLE_ALIGNMENT 0x1000
