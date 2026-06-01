@@ -35,7 +35,7 @@ target_compile_options(${CMAKE_PROJECT_NAME}.elf PRIVATE
     -fno-builtin
     -mgeneral-regs-only
     -mcmodel=kernel
-    # -m64
+    -m64
 
 
     # Warnings
@@ -78,8 +78,7 @@ target_include_directories(${CMAKE_PROJECT_NAME}.elf PRIVATE
 
 # Sources
 target_sources(${CMAKE_PROJECT_NAME}.elf PRIVATE
-    Src/boot/multiboot2.c
-    Src/arch/x86_64/boot.c
+    Src/boot/boot.c
 
     Src/kernel.c
 
@@ -87,6 +86,10 @@ target_sources(${CMAKE_PROJECT_NAME}.elf PRIVATE
     Src/utils/utils.c
 
     Src/arch/x86_64/idt.c
+    Src/arch/x86_64/gdt.c
+    Src/arch/x86_64/tss.c
+    Src/arch/x86_64/hander.c
+    Src/arch/x86_64/helper.S
 
     Src/drivers/serial/serial.c
 )

@@ -1,34 +1,21 @@
-#include <utils/utils.h>
-#include <boot/multiboot2.h>
-#include <stdbool.h>
 #include <stdint.h>
+#include <utils/utils.h>
 
-bool get_mb_tag(unsigned long addr, uint8_t tag_type, void **ptr) {
-  struct multiboot_tag *tag;
-  for (tag = (struct multiboot_tag *)(addr + 8);
-       tag->type != MULTIBOOT_TAG_TYPE_END;
-       tag =
-           (struct multiboot_tag *)((uint8_t *)tag + ((tag->size + 7) & ~7))) {
+void *kmemcpy(void *restrict dest, const void *restrict src, size_t n) {
+  uint8_t *restrict pdest = dest;
+  const uint8_t *restrict psrc = src;
 
-    if (tag->type == tag_type) {
-      *ptr = (uint8_t *)tag;
-      return true;
-    }
-  }
-  return false;
+  for (size_t i = 0; i < n; i++)
+    pdest[i] = psrc[i];
+
+  return dest;
 }
 
-void memcpy(void *restrict dest, const void *restrict src, size_t n) {
-  uint8_t *d = dest;
-  const uint8_t *s = src;
+void *kmemset(void *s, int c, size_t n) {
+  uint8_t *p = s;
 
-  while (n--)
-    *d++ = *s++;
-}
+  for (size_t i = 0; i < n; i++)
+    p[i] = (uint8_t)c;
 
-void memset(void *ptr, uint8_t c, size_t n) {
-  uint8_t *p = ptr;
-  while (n--) {
-    *p++ = c;
-  }
+  return s;
 }

@@ -1,53 +1,60 @@
-ENTRY(_start)
+OUTPUT_FORMAT(elf64-x86-64)
 
-SECTIONS {
-  . = 4M;
-  __phy_addr_st = .;
+ENTRY(kmain)
 
-  .startuptext : {
-    KEEP(*(.multiboot))
-    *(.boot.text)
-  }                                     
+PHDRS
+{
+  limine_requests PT_LOAD;
+  text PT_LOAD;
+  rodata PT_LOAD;
+  data PT_LOAD;
+}
 
-  .startuprodata : {
-    *(.boot.rodata)
-  }
+SECTIONS
+{
+  . = 0xffffffff80000000;
 
-  .startupdata : {
-    *(.boot.data)
-  }
+  .limine_requests : {
+    KEEP(*(.limine_requests_start))
+    KEEP(*(.limine_requests))
+    KEEP(*(.limine_requests_end))
+  } :limine_requests
 
-  .startupbss : {
-    *(.boot.bss)
-  }
-  
-  . = ALIGN(0x1000);
-  _boot_sec_ed = .;
+  . = ALIGN(CONSTANT(MAXPAGESIZE));
 
-  . += 0xFFFFFFFF80000000;
-  __virt_addr_st = .;
+  .text : {
+    *(.text .text.*)
+  } :text
 
-  .text : AT(_boot_sec_ed) {
-    *(.text)
-  }
-  . = ALIGN(0x1000);
-  
-  .rodata : AT((LOADADDR(.text) + SIZEOF(.text) + 0xFFF) & 0xFFFFFFFFFFFFF000){
-    *(.rodata)
-  }
-  . = ALIGN(0x1000);
+  . = ALIGN(CONSTANT(MAXPAGESIZE));
 
-  .data : AT((LOADADDR(.rodata) + SIZEOF(.rodata) + 0xFFF) & 0xFFFFFFFFFFFFF000){
-    *(.data)
-  }
-  . = ALIGN(0x1000);
+  .rodata : {
+    *(.rodata .rodata.*)
+  } :rodata
 
-  .bss : AT((LOADADDR(.data) + SIZEOF(.data) + 0xFFF) & 0xFFFFFFFFFFFFF000){
+  /* Add a .note.gnu.build-id output section in case a build ID flag is added to the */
+  /* linker command. */
+  .note.gnu.build-id : {
+    *(.note.gnu.build-id)
+  } :rodata
+
+  . = ALIGN(CONSTANT(MAXPAGESIZE));
+
+  .data : {
+    *(.data .data.*)
+  } :data
+
+  /* NOTE: .bss needs to be the last thing mapped to :data, otherwise lots of */
+  /* unnecessary zeros will be written to the binary. */
+  /* If you need, for example, .init_array and .fini_array, those should be placed */
+  /* above this. */
+  .bss : {
+    *(.bss .bss.*)
     *(COMMON)
-    *(.bss)
-  }
-  . = ALIGN(0x1000);
+  } :data
 
-  __virt_addr_ed = .;
-  __phy_addr_ed = (LOADADDR (.bss) + SIZEOF (.bss) + 0xFFF) & 0xFFFFFFFFFFFFF000;
+  /DISCARD/ : {
+    *(.eh_frame*)
+    *(.note .note.*)
+  }
 }

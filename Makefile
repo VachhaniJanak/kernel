@@ -1,80 +1,12 @@
-SRCS = \
-    Src/arch/x86_64/startup.S \
-    Src/boot/boot.c \
-    Src/kernel.c \
-    Src/utils/printf.c \
-    Src/utils/utils.c \
-    Src/arch/x86_64/idt.c \
-    Src/drivers/serial/serial.c \
-
 DES = build
-INC_DIR = Inc
-
-OBJS = $(addprefix $(DES)/, $(SRCS:.c=.o)) 
-OBJS := $(OBJS:.S=.o)
-
 TARGETELF = $(DES)/kernel.elf
 TARGETBIN = $(DES)/kernel.bin
-
-LDFILE = linker.ld
-kERNELMAP = $(DES)/kernel.map
-
-CC = x86_64-elf-gcc
-LD = x86_64-elf-ld
-OBJCOPY = x86_64-elf-objcopy 
-
-ASMFLAGS = \
-	 -Wa,--divide \
-
-CFLAGS = \
-	 -I $(INC_DIR)            \
-	 -ffreestanding       		\
-	 -fno-stack-protector 		\
-	 -fno-stack-check     		\
-	 -mno-red-zone        		\
-	 -nostdlib		      			\
-	 -fno-builtin         		\
-	 -mgeneral-regs-only  		\
-	 -Wall                		\
-	 -Wextra									\
-	 -MMD 										\
-	 -mcmodel=kernel          \
-#	 -O3
-
-LDFLAGS = \
-		-nostdlib 				\
-	  -static  					\
-	  -T $(LDFILE)		 	\
-	  -Map=$(kERNELMAP)	\
-	
-OBJCOPY_FLAGS = \
-		binary
-
-all:$(TARGETBIN)
-	
-$(TARGETBIN):$(TARGETELF) 
-	$(OBJCOPY) -O $(OBJCOPY_FLAGS) $^ $@
-
-$(TARGETELF):$(OBJS)
-	$(LD) $(LDFLAGS) $^ -o $@
-
-$(DES)/%.o:%.c
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-$(DES)/%.o:%.S
-	@mkdir -p $(dir $(OBJS))
-	$(CC) $(CFLAGS) $(KERNEL_FLAG) $(ASMFLAGS) -c $^ -o $@
-
-.PHONY: all clean createdisk writegrub loadkernel run
-
-clean:
-	@rm -r build
 
 TESTDIR = test
 IMG = $(TESTDIR)/disk.img
 MOUNT = /mnt/diskimg
 GRUBCONFIG = test/boot/grub.cfg
+LIMINECONFIG = test/boot
 
 LOOPDRIVE := $(shell sudo losetup -f)
 LOOPDRIVEP1 := "p1"
@@ -124,6 +56,26 @@ writegrub:
 		--recheck \
 		--no-nvram \
 		--force
+	@sudo umount $(MOUNT)
+	@sudo losetup -d $(LOOPDRIVE)   # detach loop device
+	@echo ">> Done"
+
+
+writelimine:
+	@echo ">> Writing bootloader......."
+	@sudo mkdir -p $(MOUNT)
+	@sudo losetup -fP $(IMG)
+	@sudo mount $(LOOPDRIVE)$(LOOPDRIVEP1) $(MOUNT)
+	@echo ">> creating dir $(MOUNT)/boot/limine"
+	@sudo mkdir -p $(MOUNT)/boot/limine
+	@echo ">> creating dir $(MOUNT)/EFI/BOOT"
+	@sudo mkdir -p $(MOUNT)/EFI/BOOT
+	@echo ">> coping file $(LIMINECONFIG)/limine.conf to $(MOUNT)/boot/limine"
+	@sudo cp $(LIMINECONFIG)/limine.conf $(MOUNT)/boot/limine
+	@echo ">> coping file $(LIMINECONFIG)/BOOTX64.EFI to $(MOUNT)/EFI/BOOT/"
+	@sudo cp  $(LIMINECONFIG)/BOOTX64.EFI $(MOUNT)/EFI/BOOT/
+	@echo ">> coping file $(LIMINECONFIG)/BOOTIA32.EFI to $(MOUNT)/EFI/BOOT/"
+	@sudo cp  $(LIMINECONFIG)/BOOTIA32.EFI $(MOUNT)/EFI/BOOT/
 	@sudo umount $(MOUNT)
 	@sudo losetup -d $(LOOPDRIVE)   # detach loop device
 	@echo ">> Done"

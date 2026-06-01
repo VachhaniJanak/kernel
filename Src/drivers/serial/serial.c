@@ -33,8 +33,9 @@ static void _serial_putchar(char character, void *arg) {
 int serial_printf(const char *format, ...) {
   va_list va;
   va_start(va, format);
-  char buffer[1];
-  const int ret = fctprintf(_serial_putchar, buffer, format, va);
+
+  int ret = vfctprintf(_serial_putchar, NULL, format, va);
+
   va_end(va);
   return ret;
 }

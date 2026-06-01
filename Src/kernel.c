@@ -1,119 +1,94 @@
+#include <boot/boot.h>
 #include <kernel.h>
+
+#include <arch/x86_64/gdt.h>
 #include <arch/x86_64/idt.h>
-#include <boot/multiboot2.h>
+#include <arch/x86_64/interrupt.h>
+#include <arch/x86_64/tss.h>
+
 #include <drivers/serial/serial.h>
+
 #include <stdbool.h>
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
+
 #include <utils/log.h>
+#include <utils/utils.h>
 
-void PageFaultHandler(void) {
-  LOG_INFO("Page Fault\n");
-  while (1)
-    ;
+// Halt and catch fire function.
+static void hcf(void) {
+  for (;;)
+    asm("hlt");
 }
 
-void InvalidTSSHandler(void) {
-  LOG_INFO("TSS Fault\n");
-  while (1)
-    ;
+void printMemoryMap(void) {
+
+  struct MemoryMapEntry_s entries[getMMapEntryCount()];
+
+  if (!copyMMapEntry(entries)) {
+    serial_printf("Failed to copy memory map entries.\n");
+    return;
+  }
+
+  for (size_t i = 0; i < getMMapEntryCount(); i++) {
+    uint64_t base = entries[i].base;
+    uint64_t length = entries[i].length;
+    uint64_t type = entries[i].type;
+
+    switch (type) {
+    case LIMINE_MEMMAP_USABLE:
+      serial_printf(MARK_AS_BOLD("Usable                 : "));
+      break;
+    case LIMINE_MEMMAP_RESERVED:
+      serial_printf(MARK_AS_BOLD("Reserved               : "));
+      break;
+    case LIMINE_MEMMAP_ACPI_RECLAIMABLE:
+      serial_printf(MARK_AS_BOLD("ACPI reclaimable       : "));
+      break;
+    case LIMINE_MEMMAP_ACPI_NVS:
+      serial_printf(MARK_AS_BOLD("ACPI NVS               : "));
+      break;
+    case LIMINE_MEMMAP_BAD_MEMORY:
+      serial_printf(MARK_AS_BOLD("Bad                    : "));
+      break;
+    case LIMINE_MEMMAP_BOOTLOADER_RECLAIMABLE:
+      serial_printf(MARK_AS_BOLD("Bootloader reclaimable : "));
+      break;
+    case LIMINE_MEMMAP_EXECUTABLE_AND_MODULES:
+      serial_printf(MARK_AS_BOLD("Executable and modules : "));
+      break;
+    case LIMINE_MEMMAP_FRAMEBUFFER:
+      serial_printf(MARK_AS_BOLD("Framebuffer            : "));
+      break;
+    case LIMINE_MEMMAP_RESERVED_MAPPED:
+      serial_printf(MARK_AS_BOLD("Reserved mapped        : "));
+      break;
+    default:
+      serial_printf(MARK_AS_BOLD("Unknown  type          : "));
+      break;
+    }
+
+    serial_printf("Base: 0x%016lx, Length: %lu KB\r\n", base, length / (1024));
+  }
 }
 
-void InvalidOpcodeHandler(void) {
-  LOG_INFO("Invalid Opcode\n");
-  while (1)
-    ;
-}
-
-void DoubleFaultHandler(void) {
-  LOG_INFO("Double Fault\n");
-  while (1)
-    ;
-}
-
-void GeneralProtectionFaultHandler(void) {
-  LOG_INFO("General Protection Fault\n");
-  while (1)
-    ;
-}
-
-void kmain(unsigned long magic, void *mbi) {
+void kmain(void) {
   serial_init();
 
-  LOG_INFO("Kmain running......");
-
-  if (magic != MULTIBOOT2_BOOTLOADER_MAGIC) {
-    LOG_ERROR("Invalid magic number: 0x%x\n", magic);
-    return;
-  }
-  
-  if ((uint64_t)mbi & 7) {
-    LOG_ERROR("Unaligned mbi: 0x%x\n", (uintptr_t)mbi);
-    return;
+  if (!isBootOk()) {
+    LOG_ERROR("Boot failed");
+    hcf();
   }
 
-  LOG_INFO("Multiboot2 info structure at 0x%p", mbi);
+  DISABLE_INT;
 
-  // if (!init_screen((struct multiboot_info *)mbi)) {
-  //   serial_printf("Screen initilization faild!\n");
-  //   return;
-  // }
+  gdt_init();
+  tss_init();
+  init_idt();
 
-  // LOG_INFO("GDT Addr : 0x%p\n",((struct GDTRTypedef *)ptr->gdt_info)->base);
-  // LOG_INFO("GDT Addr : 0x%p\n",((struct GDTRTypedef *)ptr->gdt_info)->limit);
+  ENABLE_INT;
 
-  // init_idt();
-  LOG_INFO("After init_id\n");
-
-  // struct multiboot_tag_mmap *mmap_ptr = NULL;
-  // bool f =
-  //     get_mb_tag(ptr->mbi_ptr, MULTIBOOT_TAG_TYPE_MMAP, (void **)&mmap_ptr);
-
-  // if (f) {
-  //   serial_printf("Tag Type      : 0x%x\n", mmap_ptr->type);
-  //   serial_printf("size          : 0x%x\n", mmap_ptr->size);
-  //   serial_printf("Entry size    : 0x%x\n", mmap_ptr->entry_size);
-  //   serial_printf("Entry version : 0x%x\n", mmap_ptr->entry_version);
-  //   serial_printf("Entries Addr  : 0x%x\n", mmap_ptr->entries);
-
-  //   struct multiboot_mmap_entry *mmap_entries;
-  //   serial_printf("\n");
-
-  //   for (mmap_entries = (struct multiboot_mmap_entry *)(mmap_ptr->entries);
-  //        (uint8_t *)mmap_entries <
-  //        (uint8_t *)mmap_ptr->entries + mmap_ptr->size;
-  //        mmap_entries =
-  //            (struct multiboot_mmap_entry *)((uint8_t *)mmap_entries +
-  //                                            mmap_ptr->entry_size)) {
-
-  //     if (mmap_entries->type == 1) {
-  //       serial_printf("Base Addr : 0x%lx\n", mmap_entries->addr);
-  //       serial_printf("Length    : %lu\n", mmap_entries->len);
-  //       serial_printf("Type      : 0x%x\n", mmap_entries->type);
-  //       serial_printf("\n");
-  //     }
-  //   }
-
-  //   serial_printf("For exit\n");
-  // } else {
-  //   serial_printf("Memory Map Not Found\n");
-  // }
-
-  // clr_screen(0x00000000);
-
-  // printf("If you want, I can show:\nHow to calculate the true framebuffer
-  // size "
-  //        "with padding\nHow to draw pixels safely with pitch\nHow GRUB stores
-  //        " "pitch in multiboot tags\nJust ask!\n");
-  // printf("My Lenovo ThinkPad has a default resolution of 1366x768, and when I
-  // "
-  //        "enter full-screen mode the displace scaled from 1280x720 and
-  //        nothing " "was shown clear. So, I followed the instructions and
-  //        changed the " "resolution to 1366x768 and the display was completely
-  //        messed up. It " "simply showed diagonal spikes of pixels, I couldn't
-  //        figure out " "anything my screen was showing.\n");
-  // printf("Integer : %d\n", 335454);
-
+  printMemoryMap();
   while (1)
     ;
 }
