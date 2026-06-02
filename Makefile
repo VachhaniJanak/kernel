@@ -105,4 +105,5 @@ run:
 		-bios /usr/share/edk2/ovmf/OVMF_CODE.fd \
 		-drive file=$(IMG),format=raw,if=ide \
 		-net none \
-		-serial stdio \
+		-serial stdio 
+# 		-device VGA,xres=1920,yres=1200

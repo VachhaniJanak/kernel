@@ -92,6 +92,8 @@ target_sources(${CMAKE_PROJECT_NAME}.elf PRIVATE
     Src/arch/x86_64/helper.S
 
     Src/drivers/serial/serial.c
+    Src/drivers/screen/charac.c
+    Src/drivers/screen/screen.c
 )
 
 

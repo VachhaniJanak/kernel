@@ -2,8 +2,8 @@
 
 #include "limine.h"
 #include <stdbool.h>
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #define MEMMAP_USABLE LIMINE_MEMMAP_USABLE
 #define MEMMAP_RESERVED LIMINE_MEMMAP_RESERVED
@@ -21,6 +21,12 @@ struct FrameBuffer_s {
   uint64_t height;
   uint64_t pitch;
   uint16_t bpp;
+  uint8_t red_mask_size;
+  uint8_t red_mask_shift;
+  uint8_t green_mask_size;
+  uint8_t green_mask_shift;
+  uint8_t blue_mask_size;
+  uint8_t blue_mask_shift;
 };
 
 struct MemoryMapEntry_s {

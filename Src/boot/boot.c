@@ -41,6 +41,20 @@ void getFramebufferAddr(struct FrameBuffer_s *framebuffer) {
   framebuffer->height = framebuffer_request.response->framebuffers[0]->height;
   framebuffer->pitch = framebuffer_request.response->framebuffers[0]->pitch;
   framebuffer->bpp = framebuffer_request.response->framebuffers[0]->bpp;
+
+  framebuffer->red_mask_size =
+      framebuffer_request.response->framebuffers[0]->red_mask_size;
+  framebuffer->blue_mask_size =
+      framebuffer_request.response->framebuffers[0]->blue_mask_size;
+  framebuffer->green_mask_size =
+      framebuffer_request.response->framebuffers[0]->green_mask_size;
+
+  framebuffer->red_mask_shift =
+      framebuffer_request.response->framebuffers[0]->red_mask_shift;
+  framebuffer->blue_mask_shift =
+      framebuffer_request.response->framebuffers[0]->blue_mask_shift;
+  framebuffer->green_mask_shift =
+      framebuffer_request.response->framebuffers[0]->green_mask_shift;
 }
 
 size_t getMMapEntryCount(void) {
