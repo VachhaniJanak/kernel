@@ -96,6 +96,7 @@ loadkernel:
 
 
 run:
+	@clear
 	@echo ">> Starting a emulator..."
 	@sudo qemu-system-x86_64 \
 		-cpu qemu64 \

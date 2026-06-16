@@ -50,7 +50,7 @@
                 ##__VA_ARGS__);
 
 #define LOG_DEBUG(fmt, ...)                                                    \
-  serial_printf(ANSI_COLOR_CYAN ANSI_BOLD "[DEBUG] " fmt ANSI_RESET "\r\n",    \
+  serial_printf(ANSI_COLOR_CYAN ANSI_BOLD "[DEBUG] " fmt ANSI_RESET,           \
                 ##__VA_ARGS__);
 
 #define LOG_INFO(fmt, ...)                                                     \
@@ -58,3 +58,5 @@
                 ##__VA_ARGS__);
 
 #define LOG_NEWLINE() serial_printf("\r\n");
+
+#define LOG_PRINT(fmt, ...) serial_printf(fmt, ##__VA_ARGS__);

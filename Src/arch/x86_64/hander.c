@@ -1,9 +1,13 @@
 #include <stdint.h>
-
+#include <arch/x86_64/mmu.h>
+#include <arch/x86_64/interrupt.h>
 #include <utils/log.h>
 
-void PageFaultHandler(void) {
-  LOG_INFO("Page Fault\n");
+__attribute__((interrupt))
+void PageFaultHandler(void *frame, uint64_t error_code) {
+  LOG_INFO("Page Fault");
+  LOG_INFO("Address   : 0x%lx", page_fault_addr());
+  LOG_INFO("Error code: 0x%lx", error_code);
   while (1)
     ;
 }

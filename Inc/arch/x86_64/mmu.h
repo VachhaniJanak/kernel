@@ -1,5 +1,9 @@
-#ifndef _ARCH_X86_64_MMU_H_
-#define _ARCH_X86_64_MMU_H_
+#pragma once
+
+#include <stddef.h>
+#include <stdint.h>
+
+#define PAGE_MASK (~0xfffULL)
 
 #define PML4_SIZE 0x1000
 #define PML4_ALIGNMENT 0x1000
@@ -26,5 +30,22 @@
 #define MMU_USER_MEMORY (1 << 2)
 #define MMU_PDE_TWO_MB (1 << 7)
 
+static inline uintptr_t get_page_table_addr(void) {
+  uintptr_t page_table_addr;
+  __asm__ volatile("mov %%cr3, %0" : "=r"(page_table_addr) : : "memory");
+  return page_table_addr;
+}
 
-#endif // _ARCH_X86_64_MMU_H_
+static inline void set_page_table_addr(uintptr_t addr) {
+  __asm__ volatile("mov %0, %%cr3" : : "r"(addr) : "memory");
+}
+
+static inline size_t page_fault_addr(void) {
+  size_t val;
+  __asm__ volatile("mov %%cr2, %0" : "=r"(val));
+  return val;
+}
+
+static inline void tlb_invalided(void *addr) {
+  __asm__ volatile("invlpg (%0)" ::"r"(addr) : "memory");
+}

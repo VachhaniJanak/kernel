@@ -22,6 +22,11 @@ __attribute__((
     section(".limine_requests"))) static volatile struct limine_memmap_request
     memmap_request = {.id = LIMINE_MEMMAP_REQUEST_ID, .revision = 0};
 
+__attribute__((
+    used,
+    section(".limine_requests"))) static volatile struct limine_hhdm_request
+    hhdm_request = {.id = LIMINE_HHDM_REQUEST_ID, .revision = 0};
+
 __attribute__((used, section(".limine_requests_end"))) static volatile uint64_t
     limine_requests_end_marker[] = LIMINE_REQUESTS_END_MARKER;
 
@@ -78,4 +83,11 @@ bool copyMMapEntry(struct MemoryMapEntry_s *dest) {
   }
 
   return true;
+}
+
+uintptr_t getHHDMOffset(void) {
+  if (hhdm_request.response == NULL)
+    return 0;
+
+  return hhdm_request.response->offset;
 }

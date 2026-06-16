@@ -9,6 +9,8 @@
 #include <drivers/screen/screen.h>
 #include <drivers/serial/serial.h>
 
+#include <mm/mm.h>
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -69,12 +71,17 @@ void printMemoryMap(void) {
       break;
     }
 
-    serial_printf("Base: 0x%016lx, Length: %lu KB\r\n", base, length / (1024));
+    serial_printf("Base: 0x%016lx, Length: %lu MiB\r\n", base,
+                  length / (1024 * 1024));
   }
 }
 
 void kmain(void) {
   serial_init();
+
+  LOG_NEWLINE();
+  LOG_NEWLINE();
+  LOG_NEWLINE();
 
   if (!isBootOk()) {
     LOG_ERROR("Boot failed");
@@ -89,10 +96,12 @@ void kmain(void) {
 
   ENABLE_INT;
 
-  printMemoryMap();
+  mm_init();
+
+  // printMemoryMap();
 
   if (!init_screen()) {
-    LOG_ERROR("Framebuffer initialization faild!");
+    LOG_ERROR("Framebuffer initialization failed!");
     hcf();
   }
 

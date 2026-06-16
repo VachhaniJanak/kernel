@@ -53,6 +53,7 @@ target_compile_options(${CMAKE_PROJECT_NAME}.elf PRIVATE
 
     # Optimization
     -O0 -g3
+    -DDEBUG
     # -O3
 )
 
@@ -94,6 +95,13 @@ target_sources(${CMAKE_PROJECT_NAME}.elf PRIVATE
     Src/drivers/serial/serial.c
     Src/drivers/screen/charac.c
     Src/drivers/screen/screen.c
+
+    Src/mm/mm.c
+    Src/mm/mmutils.c
+    Src/mm/debug.c
+    Src/mm/buddy/buddy.c
+    Src/mm/pmm.c
+    Src/mm/vmm.c
 )
 
 

@@ -1,5 +1,14 @@
-#ifndef _KERNEL_H_
-#define _KERNEL_H_
+#pragma once
 
+#define HIGHER_HALF_OFFSET 0xffff800000000000ULL
 
-#endif // _KERNEL_H_
+#define KERNEL_HEAP_BASE 0xffff900000000000ULL
+#define KERNEL_HEAP_SIZE (16 * (1UL << 30)) // 16 GiB
+
+#define KERNEL_VMALLOC_BASE 0xffffa00000000000ULL
+#define KERNEL_VMALLOC_SIZE (1 * (1UL << 40)) // 1 TiB
+
+#define KERNEL_STACK_BASE 0xfffffe0000000000ULL
+#define KERNEL_STACK_SIZE (64 * (1UL << 30)) // 64 GiB
+
+#define KERNEL_VIRTUAL_BASE 0xffffffff80000000ULL

@@ -42,3 +42,5 @@ void getFramebufferAddr(struct FrameBuffer_s *framebuffer);
 size_t getMMapEntryCount(void);
 
 bool copyMMapEntry(struct MemoryMapEntry_s *dest);
+
+uintptr_t getHHDMOffset(void);
