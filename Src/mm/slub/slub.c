@@ -1,16 +1,17 @@
-#include "slub.h"
+#include <mm/slub/slub.h>
+
 #include <stddef.h>
 #include <stdint.h>
 
 #include "debug.h"
 
-void create_small_caches(void);
-void *_small_kmalloc(size_t size);
-void _small_kfree(void *ptr);
+void create_small_caches(struct sslub_state_s *state);
+void *so_slub_alloc(struct sslub_state_s *state, size_t size);
+void so_slub_free(struct sslub_state_s *state, void *ptr);
 
-void create_large_caches(void);
-void *_large_kmalloc(size_t size);
-void _large_kfree(void *ptr);
+void create_large_caches(struct lslub_state_s *state);
+void *so_large_kmalloc(struct lslub_state_s *state, size_t size);
+void so_large_kfree(struct lslub_state_s *state, void *ptr);
 
 void kmalloc_init(void) {
   create_small_caches();
@@ -19,7 +20,7 @@ void kmalloc_init(void) {
 
 void *kmalloc(size_t size) {
   if (size <= MAX_SIZE_SMALL_OBJECTS)
-    return _small_kmalloc(size);
+    return so_slub_alloc(NULL, size);
 
   if (size <= MAX_SIZE_LARGE_OBJECTS)
     return _large_kmalloc(size);
@@ -39,5 +40,3 @@ void kfree(void *ptr, size_t size) {
 
   free_page(ptr, size);
 }
-
-

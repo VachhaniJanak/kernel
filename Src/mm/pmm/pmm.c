@@ -1,12 +1,17 @@
-#include "pmm.h"
-#include "buddy/buddy.h"
-#include "debug.h"
-#include "mmutils.h"
+#include "../debug.h"
+
+#include <mm/pmm/buddy.h>
+#include <mm/pmm/pmm.h>
+
 #include <stdbool.h>
 #include <stdint.h>
+
 #include <utils/log.h>
+#include <utils/utils.h>
 
 buddy_t usable_memory = {0};
+
+buddy_t *get_buddy(void) { return &usable_memory; }
 
 bool init_pmm(uintptr_t usable_addr, size_t usable_size, size_t page_size,
               void *(*phys_to_virt)(void *)) {
@@ -16,7 +21,7 @@ bool init_pmm(uintptr_t usable_addr, size_t usable_size, size_t page_size,
   // calculate pages required by buddy header metadata
 
   size_t metadata_size = no_usable_pages * sizeof(block_t);
-  size_t max_order = log2_u64(usable_size / page_size) + 1;
+  size_t max_order = log2(usable_size / page_size) + 1;
   size_t free_area_size = max_order * sizeof(block_t *);
   size_t total_header_size = metadata_size + free_area_size;
 

@@ -1,13 +1,15 @@
 #pragma once
 
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #define MM_DEFAULT_PAGE_SIZE 4096
 
-struct vm_state_s {
+extern uintptr_t hhdm_offset;
+
+struct vm_area_s {
   void *cursor;
-  size_t total_size;
+  void *fragment_list;
 };
 
 struct mm_state_s {
@@ -24,14 +26,22 @@ struct mm_state_s {
 
   uintptr_t kernel_heap_base;
   uintptr_t kernel_heap_size;
-  struct vm_state_s heap_state;
+  struct vm_area_s heap_state;
 
   uintptr_t kernel_vmalloc_base;
   uintptr_t kernel_vmalloc_size;
-  struct vm_state_s vmalloc_state;
+  struct vm_area_s vmalloc_state;
 
   uintptr_t kernel_stack_base;
   uintptr_t kernel_stack_size;
 };
 
 int mm_init(void);
+
+static inline void *virt_to_phys(void *ptr) {
+  return (void *)((uintptr_t)ptr - hhdm_offset);
+}
+
+static inline void *phys_to_virt(void *ptr) {
+  return (void *)((uintptr_t)ptr + hhdm_offset);
+}

@@ -1,23 +1,38 @@
 #include "debug.h"
-#include "mmutils.h"
-#include "pmm.h"
-#include "vmm.h"
+
+#include <mm/mm.h>
+#include <mm/pmm/pmm.h>
+#include <mm/vmm/vmm.h>
+
 #include <arch/x86_64/mmu.h>
 #include <boot/boot.h>
 #include <kernel.h>
-#include <mm/mm.h>
+
 #include <stdint.h>
+
 #include <utils/log.h>
 #include <utils/utils.h>
 
+static struct mm_state_s mm_state;
 uintptr_t hhdm_offset;
 
-static inline void *hhdm_virt_to_phys(void *ptr) {
-  return (void *)((uintptr_t)ptr - hhdm_offset);
-}
+void get_max_len(struct MemoryMapEntry_s *entries, size_t noEntries,
+                 uint8_t type, size_t *max_usable_length,
+                 uintptr_t *max_usable_base) {
 
-static inline void *hhdm_phys_to_virt(void *ptr) {
-  return (void *)((uintptr_t)ptr + hhdm_offset);
+  *max_usable_length = 0;
+  *max_usable_base = 0;
+
+  for (size_t i = 0; i < noEntries; i++) {
+
+    if (type != entries[i].type)
+      continue;
+
+    if (entries[i].length > *max_usable_length) {
+      *max_usable_length = entries[i].length;
+      *max_usable_base = entries[i].base;
+    }
+  }
 }
 
 int mm_init(void) {
@@ -52,7 +67,7 @@ int mm_init(void) {
 
   // init physical allocator
   if (!init_pmm(max_usable_base, max_usable_length, MM_DEFAULT_PAGE_SIZE,
-                hhdm_phys_to_virt)) {
+                phys_to_virt)) {
     LOG_ERROR("[MM] Buddy initialization failed!");
     return -1;
   }
@@ -63,94 +78,68 @@ int mm_init(void) {
   print_kernel_addr();
 #endif
 
+  mm_state.physical_memory_base = max_usable_base;
+  mm_state.physical_memory_size = max_usable_length;
+
+  mm_state.hhdm_offset = hhdm_offset;
+  mm_state.page_size = MM_DEFAULT_PAGE_SIZE;
+
+  // mm_state.kernel_phys_base = KERNEL_PHYS_BASE;
+  mm_state.kernel_virt_base = KERNEL_VIRTUAL_BASE;
+  // mm_state.kernel_size = KERNEL_SIZE;
+
+  mm_state.kernel_vmalloc_base = KERNEL_VMALLOC_BASE;
+  mm_state.kernel_vmalloc_size = KERNEL_VMALLOC_SIZE;
+
+  mm_state.kernel_stack_base = KERNEL_STACK_BASE;
+  mm_state.kernel_stack_size = KERNEL_STACK_SIZE;
+
+  if (!init_vmm(&mm_state)) {
+    LOG_ERROR("[MM] VMM initialization failed!");
+    return -1;
+  }
+
+  debug_print_vmm_tree();
+
+  size_t test_sizes[10] = {
+      4096, 1048576, 131072, 1048576, 524288, 1048576, 262144, 32768, 65536, 131072,
+  };
+
+  const size_t count = 10;
+
+  void *addr[10];
+
+  for (size_t i = 0; i < count; i++) {
+    addr[i] = vmalloc(test_sizes[i], MMU_WRITABLE | MMU_PRESENT, false);
+
+    if (addr[i] == NULL) {
+      LOG_ERROR("[MM] Failed to allocate memory of size %zu\n", test_sizes[i]);
+      return -1;
+    }
+
+    kmemset(addr[i], 0, test_sizes[i]);
+    LOG_DEBUG("[MM] Allocated memory of size %zu at address %p\n",
+              test_sizes[i], addr[i]);
+    // debug_print_vmm_tree();
+  }
+
+  print_buddy_state(get_buddy());
+
+  for (size_t i = 0; i < count; i++) {
+    // debug_print_size_classes();
+
+    if (addr[i] == NULL) {
+      LOG_ERROR("[MM] Invalid address for memory of size %zu\n", test_sizes[i]);
+      return -1;
+    }
+
+    vfree(addr[i]);
+    LOG_DEBUG("[MM] Freed memory of size %zu at address %p\n", test_sizes[i],
+              addr[i]);
+
+    // debug_print_vmm_tree();
+  }
+
+  print_buddy_state(get_buddy());
   return 0;
 }
-
-// void vmalloc_init(struct vm_state *state) {
-//   state->cursor = (void *)KERNEL_VMALLOC_BASE;
-//   state->total_size = KERNEL_VMALLOC_SIZE;
-//   state->page_size = MM_DEFAULT_PAGE_SIZE;
-// }
-
-// static inline size_t available_space(struct vm_state *state) {
-//   return state->total_size - ((uintptr_t)state->cursor -
-//   KERNEL_VMALLOC_BASE);
-// }
-
-// static void *vmalloc_vaddr(struct vm_state *state, size_t size) {
-
-//   if (state == NULL)
-//     return NULL;
-
-//   if (size > available_space(state))
-//     return NULL;
-
-//   void *addr = state->cursor;
-//   state->cursor = (void *)get_end_addr(addr, size);
-//   return addr;
-// }
-
-// static void vmfree_vaddr(void) { return; }
-
-// void *vmalloc(size_t size, uint64_t flags) {
-
-//   if (size == 0)
-//     return NULL;
-
-//   size = round_to_page_size(size, vmalloc_state.page_size);
-//   const size_t page_size = MM_DEFAULT_PAGE_SIZE;
-//   const size_t no_pages = size / page_size;
-
-//   if (!pmm_pages_avaliable(no_pages))
-//     return NULL;
-
-//   uint8_t *phy_addr = pmm_alloc(size);
-//   uint8_t *vir_addr = vmalloc_vaddr(&vmalloc_state, size);
-
-//   if (vir_addr == NULL) {
-//     pmm_free(phy_addr);
-//     return NULL;
-//   }
-
-//   // check for continues pages
-//   if (phy_addr != NULL) {
-//     for (size_t i = 0; i < no_pages; i++) {
-//       uint8_t *p_addr = phy_addr + page_size * i;
-//       uint8_t *v_addr = vir_addr + page_size * i;
-//       map_page(v_addr, p_addr, flags);
-//     }
-//     return vir_addr;
-//   }
-
-//   // if not then allocate non continues physical pages
-//   for (size_t i = 0; i < no_pages; i++) {
-//     uint8_t *v_addr = vir_addr + page_size * i;
-//     void *p_addr = pmm_alloc(page_size);
-
-//     if (p_addr != NULL) {
-//       map_page(v_addr, p_addr, flags);
-//       continue;
-//     }
-
-//     // rollback
-//     for (size_t j = 0; j < i; j++) {
-//       uint8_t *v_addr = vir_addr + page_size * j;
-
-//       void *p_addr = unmap_page(v_addr);
-//       if (p_addr != NULL)
-//         pmm_free(p_addr);
-//     }
-//     vmfree_vaddr();
-//   }
-
-//   return vir_addr;
-// }
-
-// void vfree(void *addr) {
-
-//   if (addr == NULL)
-//     return;
-
-//   pmm_free(addr);
-//   vmfree_vaddr();
-// }

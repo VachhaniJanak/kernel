@@ -1,27 +1,31 @@
-#include "debug.h"
-#include "slub.h"
-#include "slub_utils.h"
-#include <stdio.h>
+#include "slubutils.h"
 
-// predefined caches for small objects
-static kmem_cache_t small_pre_caches[NO_SMALL_PRE_CACHES];
-static char kmem_cache_names[NO_SMALL_PRE_CACHES][16];
+#include <mm/slub/slub.h>
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <utils/printf.h>
+#include <utils/utils.h>
 
 // create predefined caches for small objects
-void create_small_caches(void) {
+void init_small_caches(struct sslub_state_s *state) {
+
   for (size_t i = 0; i < NO_SMALL_PRE_CACHES; i++) {
+
     size_t cache_size = MIN_SIZE_SMALL_OBJECTS + i * 8;
 
-    snprintf(kmem_cache_names[i], sizeof(kmem_cache_names[i]), "kmem_cache-%d",
-             cache_size);
-    small_pre_caches[i].name = kmem_cache_names[i];
-    small_pre_caches[i].size = cache_size;
-    small_pre_caches[i].freelist = NULL;
-    small_pre_caches[i].active = NULL;
-    small_pre_caches[i].partial = NULL;
-    small_pre_caches[i].full = NULL;
-    small_pre_caches[i].npartial = 0;
-    small_pre_caches[i].nslabs = 0;
+    snprintf(state->names[i], MAX_NAME_SIZE, "kmem_cache-%lu", cache_size);
+
+    state->caches[i].name = state->names[i];
+    state->caches[i].size = cache_size;
+    state->caches[i].freelist = NULL;
+    state->caches[i].active = NULL;
+    state->caches[i].partial = NULL;
+    state->caches[i].full = NULL;
+    state->caches[i].npartial = 0;
+    state->caches[i].nslabs = 0;
   }
 }
 
@@ -48,24 +52,28 @@ static inline bool init_slab(void *page_addr, size_t obj_size,
     slab_ptr->obj = NULL;
     return false;
   }
+
   return true;
 }
 
 // return cache for the given size
-static inline kmem_cache_t *get_cache(size_t size) {
-  if (size <= MAX_SIZE_SMALL_OBJECTS) {
+static inline kmem_cache_t *get_cache(struct sslub_state_s *state,
+                                      size_t size) {
+
+  if (size > 0 && size <= MAX_SIZE_SMALL_OBJECTS) {
     size_t idx = size_to_idx(size);
-    return &small_pre_caches[idx];
+    return &state->caches[idx];
   }
+
   return NULL;
 }
 
 // return object from given cache freelist if available, otherwise create new
 // slab only for small objects
-void *_small_kmalloc(size_t size) {
+void *sslub_alloc(struct sslub_state_s *state, size_t size) {
 
   kmem_cache_t *kmc = NULL;
-  kmc = get_cache(size);
+  kmc = get_cache(state, size);
 
   if (kmc == NULL)
     return NULL;
@@ -90,12 +98,12 @@ void *_small_kmalloc(size_t size) {
   if (kmc->active != NULL)
     mv_active_to_full(kmc);
 
-  void *ptr = get_page(PAGE_SIZE);
+  void *ptr = state->get_page();
   if (ptr == NULL)
     return NULL;
 
-  if (!init_slab(ptr, kmc->size, PAGE_SIZE)) {
-    free_page(ptr, PAGE_SIZE);
+  if (!init_slab(ptr, kmc->size, state->page_size)) {
+    state->free_page(ptr);
     return NULL;
   }
 
@@ -106,12 +114,12 @@ void *_small_kmalloc(size_t size) {
 // free the given object and add it to slab freelist, if slab is empty after
 // freeing the object, remove the slab from cache and free the page
 // only for small objects
-void _small_kfree(void *ptr) {
+void sslub_free(struct sslub_state_s *state, void *ptr) {
 
   if (ptr == NULL)
     return;
 
-  void *page_addr = round_to_page_boundary(ptr);
+  void *page_addr = round_to_page_boundary(ptr, state->page_size);
   kmem_slab_t *slab_ptr = (kmem_slab_t *)page_addr;
 
   if (slab_ptr->slab_addr != page_addr)
@@ -136,7 +144,7 @@ void _small_kfree(void *ptr) {
       }
 
       cache_ptr->nslabs--;
-      free_page(page_addr, PAGE_SIZE);
+      state->free_page(page_addr);
       return;
     }
 

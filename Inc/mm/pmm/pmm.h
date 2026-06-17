@@ -1,11 +1,14 @@
 #pragma once
 
-#include "buddy/buddy.h"
+#include <mm/pmm/buddy.h>
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
 extern buddy_t usable_memory;
+
+buddy_t *get_buddy(void);
 
 bool init_pmm(uintptr_t usable_addr, size_t usable_size, size_t page_size,
               void *(*phys_to_virt)(void *));

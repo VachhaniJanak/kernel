@@ -1,5 +1,8 @@
-#include "buddy.h"
+#include <mm/pmm/buddy.h>
+
 #include <stdbool.h>
+
+#include <utils/utils.h>
 
 #define _min(a, b) ((a) < (b) ? (a) : (b))
 
@@ -78,7 +81,7 @@ int buddy_init(buddy_t *buddy, void *memory, block_t *metadata,
   buddy->free_area = free_area;
   buddy->total_size = total_size;
   buddy->page_size = page_size;
-  buddy->max_order = log2_u64(total_size / page_size);
+  buddy->max_order = log2(total_size / page_size);
   buddy->num_pages = total_size / page_size;
   buddy->free_pages = buddy->num_pages;
   buddy->metadata = metadata;
@@ -93,8 +96,8 @@ int buddy_init(buddy_t *buddy, void *memory, block_t *metadata,
     metadata[i].free = BUDDY_BLOCK_USED;
   }
 
-  size_t page_order = log2_u64(page_size);
-  size_t order = log2_u64(total_size);
+  size_t page_order = log2(page_size);
+  size_t order = log2(total_size);
   size_t size_diff = total_size;
   uintptr_t base = (uintptr_t)memory;
 
@@ -106,7 +109,7 @@ int buddy_init(buddy_t *buddy, void *memory, block_t *metadata,
   while ((1UL << order) < size_diff) {
     size_diff -= (1UL << order);
     base += (1UL << order);
-    order = log2_u64(size_diff);
+    order = log2(size_diff);
 
     if ((1UL << order) < page_size)
       break;
@@ -125,7 +128,7 @@ void *buddy_alloc(buddy_t *buddy, size_t size) {
   size_t page_size = buddy->page_size;
   size_t needed_pages = (size + page_size - 1) / page_size;
   needed_pages = nxt_pow2(needed_pages);
-  uint8_t order = log2_u64(needed_pages);
+  uint8_t order = log2(needed_pages);
   uint8_t current = order;
 
   while (current <= buddy->max_order && !buddy->free_area[current])
@@ -165,7 +168,7 @@ void buddy_free(buddy_t *buddy, void *ptr) {
   size_t page_size = buddy->page_size;
   size_t idx = addr_to_page_index(buddy, (uintptr_t)ptr);
   uint8_t order = buddy->metadata[idx].order;
-  uint8_t no_pages = 1UL << order;
+  size_t no_pages = 1UL << order;
 
   if (buddy->metadata[idx].free)
     return;

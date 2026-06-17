@@ -1,8 +1,9 @@
 #pragma once
-#include "slub.h"
+
+#include <mm/slub/slub.h>
+
 #include <stdbool.h>
 #include <stdint.h>
-#include <unistd.h>
 
 #define LEVEL_1_PAGE_MASK 0x00000000001FF000
 #define NO_ENTRIES 512
@@ -20,11 +21,6 @@ void hashMapInit(HashMap_t *hash);
 void hashMapInsert(HashMap_t *hash, uint64_t address, uint64_t value);
 uint64_t hashMapSearch(HashMap_t *hash, uint64_t address);
 bool hashMapDelete(HashMap_t *hash, uint64_t address);
-
-// round a given address to page address (if page address is align)
-static inline void *round_to_page_boundary(void *ptr) {
-  return (void *)((size_t)ptr & ~(PAGE_SIZE - 1));
-}
 
 // initialize the slab objects
 static inline bool init_obj(void *obj_ptr, size_t available_size,
@@ -82,8 +78,7 @@ static inline void mv_slab_to_partial(kmem_cache_t *ptr,
 }
 
 // set new created slab to active slab
-static inline void set_new_active(kmem_cache_t *ptr,
-                                   kmem_slab_t *slab_ptr) {
+static inline void set_new_active(kmem_cache_t *ptr, kmem_slab_t *slab_ptr) {
 
   ptr->active = slab_ptr;
   ptr->freelist = slab_ptr->obj;
@@ -93,14 +88,14 @@ static inline void set_new_active(kmem_cache_t *ptr,
 
 // add given object to given slab freelist
 static inline void add_obj_to_freelist(kmem_slab_t *slab_ptr,
-                                        struct kmem_obj *obj_ptr) {
+                                       struct kmem_obj *obj_ptr) {
 
   obj_ptr->nxt = slab_ptr->obj;
   slab_ptr->obj = obj_ptr;
   slab_ptr->aloc_obj--;
 }
 
-static inline void update_freelist_ptr(kmem_cache_t *ptr){
+static inline void update_freelist_ptr(kmem_cache_t *ptr) {
   if (ptr->active == NULL)
     return;
   ptr->freelist = ptr->active->obj;

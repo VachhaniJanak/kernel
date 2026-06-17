@@ -97,11 +97,16 @@ target_sources(${CMAKE_PROJECT_NAME}.elf PRIVATE
     Src/drivers/screen/screen.c
 
     Src/mm/mm.c
-    Src/mm/mmutils.c
     Src/mm/debug.c
-    Src/mm/buddy/buddy.c
-    Src/mm/pmm.c
-    Src/mm/vmm.c
+    
+    Src/mm/pmm/buddy.c
+    Src/mm/pmm/pmm.c
+
+    Src/mm/slub/sslub.c
+    Src/mm/slub/slub_utils.c
+
+    Src/mm/vmm/vmm.c
+    Src/mm/vmm/rbtree.c
 )
 
 
