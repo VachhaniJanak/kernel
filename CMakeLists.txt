@@ -103,10 +103,14 @@ target_sources(${CMAKE_PROJECT_NAME}.elf PRIVATE
     Src/mm/pmm/pmm.c
 
     Src/mm/slub/sslub.c
-    Src/mm/slub/slub_utils.c
+    Src/mm/slub/slubutils.c
+    Src/mm/slub/rbtree.c
+    Src/mm/slub/lslub.c
 
     Src/mm/vmm/vmm.c
     Src/mm/vmm/rbtree.c
+
+    Src/mm/vmm/kheap.c
 )
 
 

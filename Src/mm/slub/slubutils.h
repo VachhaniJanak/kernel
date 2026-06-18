@@ -5,22 +5,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define LEVEL_1_PAGE_MASK 0x00000000001FF000
-#define NO_ENTRIES 512
-
-typedef struct {
-  uint64_t *primaryTable;
-} HashMap_t;
-
 kmem_slab_t *pop_slab(kmem_slab_t **head_ptr);
 void push_slab(kmem_slab_t **head_ptr, kmem_slab_t *new_slab);
 void remove_slab(kmem_slab_t **head_ptr, kmem_slab_t *node_ptr);
 bool is_slab_list_empty(kmem_slab_t *slab_ptr);
-
-void hashMapInit(HashMap_t *hash);
-void hashMapInsert(HashMap_t *hash, uint64_t address, uint64_t value);
-uint64_t hashMapSearch(HashMap_t *hash, uint64_t address);
-bool hashMapDelete(HashMap_t *hash, uint64_t address);
 
 // initialize the slab objects
 static inline bool init_obj(void *obj_ptr, size_t available_size,

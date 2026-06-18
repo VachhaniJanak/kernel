@@ -2,6 +2,7 @@
 
 #include <mm/mm.h>
 #include <mm/pmm/pmm.h>
+#include <mm/vmm/kheap.h>
 #include <mm/vmm/vmm.h>
 
 #include <arch/x86_64/mmu.h>
@@ -91,6 +92,9 @@ int mm_init(void) {
   mm_state.kernel_vmalloc_base = KERNEL_VMALLOC_BASE;
   mm_state.kernel_vmalloc_size = KERNEL_VMALLOC_SIZE;
 
+  mm_state.kernel_heap_base = KERNEL_HEAP_BASE;
+  mm_state.kernel_heap_size = KERNEL_HEAP_SIZE;
+
   mm_state.kernel_stack_base = KERNEL_STACK_BASE;
   mm_state.kernel_stack_size = KERNEL_STACK_SIZE;
 
@@ -99,47 +103,10 @@ int mm_init(void) {
     return -1;
   }
 
-  debug_print_vmm_tree();
+  // init kernel heap
+  init_kheap(&mm_state);
 
-  size_t test_sizes[10] = {
-      4096, 1048576, 131072, 1048576, 524288, 1048576, 262144, 32768, 65536, 131072,
-  };
+  
 
-  const size_t count = 10;
-
-  void *addr[10];
-
-  for (size_t i = 0; i < count; i++) {
-    addr[i] = vmalloc(test_sizes[i], MMU_WRITABLE | MMU_PRESENT, false);
-
-    if (addr[i] == NULL) {
-      LOG_ERROR("[MM] Failed to allocate memory of size %zu\n", test_sizes[i]);
-      return -1;
-    }
-
-    kmemset(addr[i], 0, test_sizes[i]);
-    LOG_DEBUG("[MM] Allocated memory of size %zu at address %p\n",
-              test_sizes[i], addr[i]);
-    // debug_print_vmm_tree();
-  }
-
-  print_buddy_state(get_buddy());
-
-  for (size_t i = 0; i < count; i++) {
-    // debug_print_size_classes();
-
-    if (addr[i] == NULL) {
-      LOG_ERROR("[MM] Invalid address for memory of size %zu\n", test_sizes[i]);
-      return -1;
-    }
-
-    vfree(addr[i]);
-    LOG_DEBUG("[MM] Freed memory of size %zu at address %p\n", test_sizes[i],
-              addr[i]);
-
-    // debug_print_vmm_tree();
-  }
-
-  print_buddy_state(get_buddy());
   return 0;
 }

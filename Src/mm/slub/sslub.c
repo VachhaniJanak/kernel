@@ -10,13 +10,13 @@
 #include <utils/utils.h>
 
 // create predefined caches for small objects
-void init_small_caches(struct sslub_state_s *state) {
+void init_slub_scaches(struct sslub_state_s *state) {
 
   for (size_t i = 0; i < NO_SMALL_PRE_CACHES; i++) {
 
     size_t cache_size = MIN_SIZE_SMALL_OBJECTS + i * 8;
 
-    snprintf(state->names[i], MAX_NAME_SIZE, "kmem_cache-%lu", cache_size);
+    snprintf(state->names[i], SLUB_MAX_NAME_SIZE, "kmem_cache-%lu", cache_size);
 
     state->caches[i].name = state->names[i];
     state->caches[i].size = cache_size;
@@ -114,16 +114,17 @@ void *sslub_alloc(struct sslub_state_s *state, size_t size) {
 // free the given object and add it to slab freelist, if slab is empty after
 // freeing the object, remove the slab from cache and free the page
 // only for small objects
-void sslub_free(struct sslub_state_s *state, void *ptr) {
+bool sslub_free(struct sslub_state_s *state, void *ptr) {
 
   if (ptr == NULL)
-    return;
+    return false;
 
   void *page_addr = round_to_page_boundary(ptr, state->page_size);
   kmem_slab_t *slab_ptr = (kmem_slab_t *)page_addr;
 
+  // valided the given address
   if (slab_ptr->slab_addr != page_addr)
-    return;
+    return false;
 
   struct kmem_obj *obj_ptr = (struct kmem_obj *)ptr;
   kmem_cache_t *cache_ptr = slab_ptr->cache;
@@ -145,13 +146,13 @@ void sslub_free(struct sslub_state_s *state, void *ptr) {
 
       cache_ptr->nslabs--;
       state->free_page(page_addr);
-      return;
+      return true;
     }
 
     // else add the object to given slab freelist
     add_obj_to_freelist(slab_ptr, obj_ptr);
     update_freelist_ptr(cache_ptr);
-    return;
+    return true;
   }
 
   // if slab is full slab, add the object to slab freelist, move the slab to
@@ -159,5 +160,5 @@ void sslub_free(struct sslub_state_s *state, void *ptr) {
   add_obj_to_freelist(slab_ptr, obj_ptr);
   remove_slab(&cache_ptr->full, slab_ptr);
   mv_slab_to_partial(cache_ptr, slab_ptr);
-  return;
+  return true;
 }

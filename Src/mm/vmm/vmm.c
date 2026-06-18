@@ -1,9 +1,10 @@
 #include "../debug.h"
 
+#include "rbtree.h"
+
 #include <mm/mm.h>
 #include <mm/pmm/pmm.h>
 #include <mm/slub/slub.h>
-#include <mm/vmm/rbtree.h>
 #include <mm/vmm/vmm.h>
 
 #include <arch/x86_64/mmu.h>
@@ -18,9 +19,9 @@
 void *valloc_page(void);
 void vfree_page(void *addr);
 
-RBTree vmm_tree = {0};
-struct mm_state_s *mm_state = NULL;
-struct sslub_state_s pre_alloc = {0};
+static RBTree vmm_tree = {0};
+static struct mm_state_s *mm_state = NULL;
+static struct sslub_state_s pre_alloc = {0};
 static struct sgl_node_s *size_classes[50] = {NULL};
 
 bool init_vmm(struct mm_state_s *state) {
@@ -41,7 +42,7 @@ bool init_vmm(struct mm_state_s *state) {
   pre_alloc.get_page = &valloc_page;
   pre_alloc.free_page = &vfree_page;
 
-  init_small_caches(&pre_alloc);
+  init_slub_scaches(&pre_alloc);
 
   return true;
 }

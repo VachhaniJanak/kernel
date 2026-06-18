@@ -10,19 +10,17 @@ extern void pre_obj_free(void *node);
 static inline void *allocate_node(size_t size) { return pre_obj_alloc(size); }
 static inline void deallocate_node(void *node) { pre_obj_free(node); }
 
-void rb_create(RBTree *t) {
+void slub_rb_create(RBTree *t) {
   t->nil = &t->nil_node;
   t->nil->color = BLACK;
   t->nil->left = t->nil->right = t->nil->parent = t->nil;
   t->root = t->nil;
 }
 
-static inline Node *new_node(RBTree *t, void *addr, size_t size,
-                             bool is_continuous) {
+static inline Node *new_node(RBTree *t, void *key, void *value) {
   Node *n = allocate_node(sizeof *n);
-  n->addr = addr;
-  n->size = size;
-  n->is_continuous = is_continuous;
+  n->key = key;
+  n->value = value;
 
   n->color = RED;
   n->left = n->right = n->parent = t->nil;
@@ -110,14 +108,14 @@ static inline void insert_fixup(RBTree *t, Node *z) {
   t->root->color = BLACK;
 }
 
-void rb_insert(RBTree *t, void *addr, size_t size, bool is_continuous) {
-  Node *z = new_node(t, addr, size, is_continuous);
+void slub_rb_insert(RBTree *t, void *key, void *value) {
+  Node *z = new_node(t, key, value);
   Node *y = t->nil;
   Node *x = t->root;
 
   while (x != t->nil) {
     y = x;
-    if (z->addr < x->addr)
+    if (z->key < x->key)
       x = x->left;
     else
       x = x->right;
@@ -126,7 +124,7 @@ void rb_insert(RBTree *t, void *addr, size_t size, bool is_continuous) {
 
   if (y == t->nil)
     t->root = z;
-  else if (z->addr < y->addr)
+  else if (z->key < y->key)
     y->left = z;
   else
     y->right = z;
@@ -208,13 +206,13 @@ static inline void delete_fixup(RBTree *t, Node *x) {
   x->color = BLACK;
 }
 
-bool rb_delete(RBTree *t, void *addr, size_t *size, bool *is_continuous) {
+bool slub_rb_delete(RBTree *t, void *key) {
   /* Find the node */
   Node *z = t->root;
   while (z != t->nil)
-    if (addr < z->addr)
+    if (key < z->key)
       z = z->left;
-    else if (addr > z->addr)
+    else if (key > z->key)
       z = z->right;
     else
       break;
@@ -249,8 +247,6 @@ bool rb_delete(RBTree *t, void *addr, size_t *size, bool *is_continuous) {
     y->color = z->color;
   }
 
-  *size = z->size;
-  *is_continuous = z->is_continuous;
   deallocate_node(z);
 
   if (y_orig_color == BLACK)
@@ -259,14 +255,14 @@ bool rb_delete(RBTree *t, void *addr, size_t *size, bool *is_continuous) {
   return true;
 }
 
-Node *rb_search(RBTree *t, void *addr) {
+void *slub_rb_search(RBTree *t, void *key) {
   Node *x = t->root;
   while (x != t->nil)
-    if (addr < x->addr)
+    if (key < x->key)
       x = x->left;
-    else if (addr > x->addr)
+    else if (key > x->key)
       x = x->right;
     else
-      return x;
+      return x->value;
   return NULL;
 }

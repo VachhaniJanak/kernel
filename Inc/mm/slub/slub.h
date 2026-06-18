@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 #define MAX_SIZE_LARGE_OBJECTS 4096
 #define MIN_SIZE_LARGE_OBJECTS 200
@@ -13,7 +14,7 @@
 #define NO_SMALL_PRE_CACHES                                                    \
   (MAX_SIZE_SMALL_OBJECTS - MIN_SIZE_SMALL_OBJECTS) / 8 + 1
 
-#define MAX_NAME_SIZE 16
+#define SLUB_MAX_NAME_SIZE 16
 
 struct kmem_obj {
   struct kmem_obj *nxt;
@@ -45,7 +46,7 @@ typedef struct kmem_cache kmem_cache_t;
 
 struct sslub_state_s {
   kmem_cache_t caches[NO_SMALL_PRE_CACHES];
-  char names[NO_SMALL_PRE_CACHES][MAX_NAME_SIZE];
+  char names[NO_SMALL_PRE_CACHES][SLUB_MAX_NAME_SIZE];
   size_t page_size;
   void *(*get_page)();
   void (*free_page)(void *addr);
@@ -53,13 +54,16 @@ struct sslub_state_s {
 
 struct lslub_state_s {
   kmem_cache_t caches[NO_LARGE_CACHES];
-  char names[NO_LARGE_CACHES][MAX_NAME_SIZE];
+  char names[NO_LARGE_CACHES][SLUB_MAX_NAME_SIZE];
+  size_t page_size;
+  void *(*get_page)();
+  void (*free_page)(void *addr);
 };
 
-void init_small_caches(struct sslub_state_s *state);
+void init_slub_scaches(struct sslub_state_s *state);
 void *sslub_alloc(struct sslub_state_s *state, size_t size);
-void sslub_free(struct sslub_state_s *state, void *ptr);
+bool sslub_free(struct sslub_state_s *state, void *ptr);
 
-// void kmalloc_init(void);
-// void *kmalloc(unsigned long size);
-// void kfree(void *ptr, unsigned long size);
+void init_slub_lcaches(struct lslub_state_s *state);
+void *lslub_alloc(struct lslub_state_s *state, size_t size);
+bool lslub_free(struct lslub_state_s *state, void *ptr);
