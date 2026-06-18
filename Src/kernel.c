@@ -4,6 +4,7 @@
 #include <arch/x86_64/gdt.h>
 #include <arch/x86_64/idt.h>
 #include <arch/x86_64/interrupt.h>
+#include <arch/x86_64/stack.h>
 #include <arch/x86_64/tss.h>
 
 #include <drivers/screen/screen.h>
@@ -98,6 +99,7 @@ void kmain(void) {
 
   mm_init();
 
+  set_stack_top(KERNEL_STACK_BASE);
   // printMemoryMap();
 
   if (!init_screen()) {

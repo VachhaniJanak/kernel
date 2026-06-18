@@ -307,7 +307,7 @@ void vfree_page(void *addr) {
   vfree_vaddr(addr, mm_state->page_size);
 }
 
-void *vmalloc(size_t size, uint64_t flags, bool phys_continuous) {
+void *vmalloc(size_t size, uint64_t flags, bool continuous) {
 
   if (size == 0)
     return NULL;
@@ -340,7 +340,7 @@ void *vmalloc(size_t size, uint64_t flags, bool phys_continuous) {
     return vir_addr;
   }
 
-  if (phys_continuous)
+  if (continuous)
     return NULL;
 
   // if not, then allocate non continues physical pages

@@ -36,6 +36,55 @@ void get_max_len(struct MemoryMapEntry_s *entries, size_t noEntries,
   }
 }
 
+bool mm_setup_kstack(void) {
+
+  mm_state.stack_state.cursor = (void *)mm_state.kernel_stack_base;
+  mm_state.stack_state.fragment_list = NULL;
+
+  const uint64_t flags = MMU_PRESENT | MMU_WRITABLE;
+  const size_t page_size = mm_state.page_size;
+  const size_t stack_size =
+      round_to_page_size(mm_state.kernel_stack_size, page_size);
+  const size_t no_pages = stack_size / mm_state.page_size;
+
+  // check if stack is aligned to page size
+  if ((uintptr_t)mm_state.stack_state.cursor % page_size != 0) {
+    LOG_ERROR("[MM] Kernel stack base address is not aligned to page size.");
+    return false;
+  }
+
+  // allocate stack from top to bottom
+  void *base_addr = mm_state.stack_state.cursor - stack_size;
+  uint8_t *vir_addr = (uint8_t *)base_addr;
+
+  // allocate non continues physical pages
+  for (size_t i = 0; i < no_pages; i++) {
+
+    uint8_t *v_addr = vir_addr + page_size * i;
+    void *p_addr = pmm_alloc(page_size);
+
+    if (p_addr != NULL) {
+      map_page(v_addr, p_addr, flags, phys_to_virt);
+      continue;
+    }
+
+    // rollback
+    for (size_t j = 0; j < i; j++) {
+      uint8_t *v_addr = vir_addr + page_size * j;
+
+      void *p_addr = unmap_page(v_addr, phys_to_virt, virt_to_phys);
+      if (p_addr != NULL)
+        pmm_free(p_addr);
+    }
+
+    LOG_ERROR("[MM] Failed to allocate physical page for kernel stack.");
+    return false;
+  }
+
+  mm_state.stack_state.cursor = base_addr;
+  return true;
+}
+
 int mm_init(void) {
 
   const size_t noEntries = getMMapEntryCount();
@@ -106,7 +155,12 @@ int mm_init(void) {
   // init kernel heap
   init_kheap(&mm_state);
 
-  
+  if (!mm_setup_kstack()) {
+    LOG_ERROR("[MM] Kernel stack setup failed!");
+    return -1;
+  }
+
+  // print_buddy_state(get_buddy());
 
   return 0;
 }

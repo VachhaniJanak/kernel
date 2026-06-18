@@ -34,6 +34,7 @@ struct mm_state_s {
 
   uintptr_t kernel_stack_base;
   uintptr_t kernel_stack_size;
+  struct vm_area_s stack_state;
 };
 
 int mm_init(void);
