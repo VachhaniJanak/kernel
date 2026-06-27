@@ -32,6 +32,7 @@ createdisk:
 	@sudo losetup -fP $(IMG)
 	@echo ">> Formating Fat32 to $(LOOPDRIVE)$(LOOPDRIVEP1)"
 	@sudo mkfs.vfat -F 32 $(LOOPDRIVE)$(LOOPDRIVEP1)
+	
 	@echo ">> Formating Fat32 to $(LOOPDRIVE)$(LOOPDRIVEP2)"
 	@sudo mkfs.vfat -F 32 $(LOOPDRIVE)$(LOOPDRIVEP2)
 	@sudo losetup -d $(LOOPDRIVE)   # detach loop device
@@ -97,14 +98,19 @@ loadkernel:
 
 run:
 	@clear
-	@echo ">> Starting a emulator..."
+	@echo ">> Starting emulator..."
 	@sudo qemu-system-x86_64 \
+		-machine q35 \
 		-cpu qemu64 \
+		-bios /usr/share/edk2/ovmf/OVMF_CODE.fd \
+		-cpu host,+apic \
+		-enable-kvm \
+		-smp 1 \
 		-m 512M \
+		-device ich9-ahci,id=ahci \
+		-drive file=$(IMG),format=raw,if=none,id=disk0 \
+		-device ide-hd,drive=disk0,bus=ahci.0 \
 		-d int,guest_errors,cpu_reset \
 		-D test/qemu.log \
-		-bios /usr/share/edk2/ovmf/OVMF_CODE.fd \
-		-drive file=$(IMG),format=raw,if=ide \
 		-net none \
-		-serial stdio 
-# 		-device VGA,xres=1920,yres=1200
+		-serial stdio

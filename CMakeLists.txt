@@ -89,12 +89,14 @@ target_sources(${CMAKE_PROJECT_NAME}.elf PRIVATE
     Src/arch/x86_64/idt.c
     Src/arch/x86_64/gdt.c
     Src/arch/x86_64/tss.c
-    Src/arch/x86_64/hander.c
+    Src/arch/x86_64/isr.c
+    Src/arch/x86_64/isr.S
     Src/arch/x86_64/helper.S
 
     Src/drivers/serial/serial.c
     Src/drivers/screen/charac.c
     Src/drivers/screen/screen.c
+    Src/drivers/acpi/acpi.c
 
     Src/mm/mm.c
     Src/mm/debug.c
@@ -109,7 +111,6 @@ target_sources(${CMAKE_PROJECT_NAME}.elf PRIVATE
 
     Src/mm/vmm/vmm.c
     Src/mm/vmm/rbtree.c
-
     Src/mm/vmm/kheap.c
 )
 

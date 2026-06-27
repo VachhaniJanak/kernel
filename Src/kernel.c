@@ -9,6 +9,7 @@
 
 #include <drivers/screen/screen.h>
 #include <drivers/serial/serial.h>
+#include <drivers/acpi/acpi.h>
 
 #include <mm/mm.h>
 
@@ -100,7 +101,6 @@ void kmain(void) {
   mm_init();
 
   set_stack_top(KERNEL_STACK_BASE);
-  // printMemoryMap();
 
   if (!init_screen()) {
     LOG_ERROR("Framebuffer initialization failed!");
@@ -109,6 +109,25 @@ void kmain(void) {
 
   clear_screen(0x00000000);
   kprintf("Welcome to %s!\n", "MyOS");
+
+
+  // printMemoryMap();
+
+
+  void *addr = getRSDT();
+
+  if (addr == NULL){
+    LOG_ERROR("Unable to get RSDT!");
+    hcf();
+  }
+
+  if(!initACPI(addr, &phys_to_virt)){
+    LOG_ERROR("ACPI init faild!");
+    hcf();
+  }
+
+  int *p = 0;
+  *p = 12; // This will cause a page fault exception to be triggered.
 
   while (1)
     ;

@@ -27,6 +27,11 @@ __attribute__((
     section(".limine_requests"))) static volatile struct limine_hhdm_request
     hhdm_request = {.id = LIMINE_HHDM_REQUEST_ID, .revision = 0};
 
+__attribute__((
+    used,
+    section(".limine_requests"))) static volatile struct limine_rsdp_request
+    rsdp_request = {.id = LIMINE_RSDP_REQUEST_ID, .revision = 0};
+
 __attribute__((used, section(".limine_requests_end"))) static volatile uint64_t
     limine_requests_end_marker[] = LIMINE_REQUESTS_END_MARKER;
 
@@ -90,4 +95,10 @@ uintptr_t getHHDMOffset(void) {
     return 0;
 
   return hhdm_request.response->offset;
+}
+
+void *getRSDT(void) {
+  if (rsdp_request.response == NULL)
+    return NULL;
+  return rsdp_request.response->address;
 }

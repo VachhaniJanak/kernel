@@ -10,10 +10,14 @@
 #ifndef FORCE_NOINLINE
 #define FORCE_NOINLINE __attribute__((noinline))
 #endif
+#ifndef INTERRUPT_HANDLER
+#define INTERRUPT_HANDLER __attribute__((interrupt))
+#endif
 #else
 #define WEAK
 #define FORCE_INLINE
 #define FORCE_NOINLINE
+#define INTERRUPT_HANDLER
 #endif
 
 #ifndef __IO
