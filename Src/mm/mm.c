@@ -1,33 +1,27 @@
-#include "debug.h"
-
+#include <arch/x86_64/mmu.h>
+#include <boot/boot.h>
+#include <kernel.h>
 #include <mm/mm.h>
 #include <mm/pmm/pmm.h>
 #include <mm/vmm/kheap.h>
 #include <mm/vmm/vmm.h>
-
-#include <arch/x86_64/mmu.h>
-#include <boot/boot.h>
-#include <kernel.h>
-
 #include <stdint.h>
-
 #include <utils/log.h>
 #include <utils/utils.h>
+
+#include "debug.h"
 
 static struct mm_state_s mm_state;
 uintptr_t hhdm_offset;
 
-void get_max_len(struct MemoryMapEntry_s *entries, size_t noEntries,
-                 uint8_t type, size_t *max_usable_length,
-                 uintptr_t *max_usable_base) {
-
+void get_max_len(struct MemoryMapEntry_s* entries, size_t noEntries,
+                 uint8_t type, size_t* max_usable_length,
+                 uintptr_t* max_usable_base) {
   *max_usable_length = 0;
   *max_usable_base = 0;
 
   for (size_t i = 0; i < noEntries; i++) {
-
-    if (type != entries[i].type)
-      continue;
+    if (type != entries[i].type) continue;
 
     if (entries[i].length > *max_usable_length) {
       *max_usable_length = entries[i].length;
@@ -37,8 +31,7 @@ void get_max_len(struct MemoryMapEntry_s *entries, size_t noEntries,
 }
 
 bool mm_setup_kstack(void) {
-
-  mm_state.stack_state.cursor = (void *)mm_state.kernel_stack_base;
+  mm_state.stack_state.cursor = (void*)mm_state.kernel_stack_base;
   mm_state.stack_state.fragment_list = NULL;
 
   const uint64_t flags = MMU_PRESENT | MMU_WRITABLE;
@@ -54,14 +47,13 @@ bool mm_setup_kstack(void) {
   }
 
   // allocate stack from top to bottom
-  void *base_addr = mm_state.stack_state.cursor - stack_size;
-  uint8_t *vir_addr = (uint8_t *)base_addr;
+  void* base_addr = mm_state.stack_state.cursor - stack_size;
+  uint8_t* vir_addr = (uint8_t*)base_addr;
 
   // allocate non continues physical pages
   for (size_t i = 0; i < no_pages; i++) {
-
-    uint8_t *v_addr = vir_addr + page_size * i;
-    void *p_addr = pmm_alloc(page_size);
+    uint8_t* v_addr = vir_addr + page_size * i;
+    void* p_addr = pmm_alloc(page_size);
 
     if (p_addr != NULL) {
       map_page(v_addr, p_addr, flags, phys_to_virt);
@@ -70,11 +62,10 @@ bool mm_setup_kstack(void) {
 
     // rollback
     for (size_t j = 0; j < i; j++) {
-      uint8_t *v_addr = vir_addr + page_size * j;
+      uint8_t* v_addr = vir_addr + page_size * j;
 
-      void *p_addr = unmap_page(v_addr, phys_to_virt, virt_to_phys);
-      if (p_addr != NULL)
-        pmm_free(p_addr);
+      void* p_addr = unmap_page(v_addr, phys_to_virt, virt_to_phys);
+      if (p_addr != NULL) pmm_free(p_addr);
     }
 
     LOG_ERROR("[MM] Failed to allocate physical page for kernel stack.");
@@ -86,7 +77,6 @@ bool mm_setup_kstack(void) {
 }
 
 int mm_init(void) {
-
   const size_t noEntries = getMMapEntryCount();
   struct MemoryMapEntry_s entries[noEntries];
 
@@ -163,4 +153,13 @@ int mm_init(void) {
   // print_buddy_state(get_buddy());
 
   return 0;
+}
+
+bool mmap(void* virt_addr, void* phys_addr) {
+  uint64_t flags = MMU_PRESENT | MMU_WRITABLE;
+  return map_page(virt_addr, phys_addr, flags, phys_to_virt);
+}
+
+void ummap(void* virt_addr) {
+  unmap_page(virt_addr, phys_to_virt, virt_to_phys);
 }

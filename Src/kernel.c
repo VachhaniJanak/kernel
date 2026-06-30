@@ -6,6 +6,7 @@
 #include <arch/x86_64/interrupt.h>
 #include <arch/x86_64/stack.h>
 #include <arch/x86_64/tss.h>
+#include <arch/x86_64/apic.h>
 
 #include <drivers/screen/screen.h>
 #include <drivers/serial/serial.h>
@@ -100,7 +101,7 @@ void kmain(void) {
 
   mm_init();
 
-  set_stack_top(KERNEL_STACK_BASE);
+  // set_stack_top(KERNEL_STACK_BASE);
 
   if (!init_screen()) {
     LOG_ERROR("Framebuffer initialization failed!");
@@ -126,8 +127,12 @@ void kmain(void) {
     hcf();
   }
 
-  int *p = 0;
-  *p = 12; // This will cause a page fault exception to be triggered.
+  LOG_NEWLINE();
+  LOG_DEBUG("CPU Count: %lu\n", getMADTEntryCount(0));
+
+  DISABLE_INT;
+  init_apic();
+  ENABLE_INT;
 
   while (1)
     ;

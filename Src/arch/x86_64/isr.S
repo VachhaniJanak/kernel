@@ -62,12 +62,14 @@
 .section .text
 DEFINE_ISR_X86_64(page_fault_isr);
 
+DEFINE_ISR_X86_64(gp_fault_isr);
+
 DEFINE_ISR_X86_64(invalid_tss_isr);
 
 DEFINE_ISR_X86_64(invalid_opcode_isr);
 
 DEFINE_ISR_X86_64(double_fault_isr);
 
-DEFINE_ISR_X86_64(gp_fault_isr);
-
 DEFINE_ISR_X86_64(timer_irq_isr);
+
+DEFINE_ISR_NE_X86_64(keyboard_irq_isr);

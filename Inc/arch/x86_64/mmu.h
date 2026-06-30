@@ -46,6 +46,6 @@ static inline size_t page_fault_addr(void) {
   return val;
 }
 
-static inline void tlb_invalided(void *addr) {
+static inline void tlb_invalided(void* addr) {
   __asm__ volatile("invlpg (%0)" ::"r"(addr) : "memory");
 }

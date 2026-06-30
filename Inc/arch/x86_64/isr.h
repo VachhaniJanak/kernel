@@ -35,6 +35,7 @@ void invalid_opcode_isr(void);
 void double_fault_isr(void);
 void gp_fault_isr(void);
 void timer_irq_isr(void);
+void keyboard_irq_isr(void);
 
 void page_fault_isr_handler(struct interrupt_frame_s* frame);
 void invalid_tss_isr_handler(struct interrupt_frame_s* frame);
@@ -42,3 +43,4 @@ void invalid_opcode_isr_handler(struct interrupt_frame_s* frame);
 void double_fault_isr_handler(struct interrupt_frame_s* frame);
 void gp_fault_isr_handler(struct interrupt_frame_s* frame);
 void timer_irq_isr_handler(struct interrupt_frame_s* frame);
+void keyboard_irq_isr_handler(void);

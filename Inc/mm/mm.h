@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -8,8 +9,8 @@
 extern uintptr_t hhdm_offset;
 
 struct vm_area_s {
-  void *cursor;
-  void *fragment_list;
+  void* cursor;
+  void* fragment_list;
 };
 
 struct mm_state_s {
@@ -39,10 +40,14 @@ struct mm_state_s {
 
 int mm_init(void);
 
-static inline void *virt_to_phys(void *ptr) {
-  return (void *)((uintptr_t)ptr - hhdm_offset);
+static inline void* virt_to_phys(void* ptr) {
+  return (void*)((uintptr_t)ptr - hhdm_offset);
 }
 
-static inline void *phys_to_virt(void *ptr) {
-  return (void *)((uintptr_t)ptr + hhdm_offset);
+static inline void* phys_to_virt(void* ptr) {
+  return (void*)((uintptr_t)ptr + hhdm_offset);
 }
+
+bool mmap(void* virt_addr, void* phys_addr);
+
+void ummap(void* virt_addr);
