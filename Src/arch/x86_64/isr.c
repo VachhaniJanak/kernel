@@ -88,11 +88,9 @@ WEAK void double_fault_isr_handler(struct interrupt_frame_s* frame) {
   while (1);
 }
 
-WEAK void timer_irq_isr_handler(struct interrupt_frame_s* frame) {
-  UNUSED(frame);
-  // LOG_ERROR("Timer IRQ");
-  // while (1)
-  // ;
+WEAK void timer_irq_isr_handler(void) { 
+  LOG_DEBUG("Timer IRQ\n");
+  lapic_eoi(); 
 }
 
 WEAK void keyboard_irq_isr_handler(void) {

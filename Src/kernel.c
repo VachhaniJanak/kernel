@@ -1,34 +1,28 @@
-#include <boot/boot.h>
-#include <kernel.h>
-
+#include <arch/x86_64/apic.h>
 #include <arch/x86_64/gdt.h>
 #include <arch/x86_64/idt.h>
 #include <arch/x86_64/interrupt.h>
 #include <arch/x86_64/stack.h>
+#include <arch/x86_64/timer.h>
 #include <arch/x86_64/tss.h>
-#include <arch/x86_64/apic.h>
-
+#include <boot/boot.h>
+#include <drivers/acpi/acpi.h>
 #include <drivers/screen/screen.h>
 #include <drivers/serial/serial.h>
-#include <drivers/acpi/acpi.h>
-
+#include <kernel.h>
 #include <mm/mm.h>
-
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-
 #include <utils/log.h>
 #include <utils/utils.h>
 
 // Halt and catch fire function.
 static void hcf(void) {
-  for (;;)
-    asm("hlt");
+  for (;;) asm("hlt");
 }
 
 void printMemoryMap(void) {
-
   struct MemoryMapEntry_s entries[getMMapEntryCount()];
 
   if (!copyMMapEntry(entries)) {
@@ -42,36 +36,36 @@ void printMemoryMap(void) {
     uint64_t type = entries[i].type;
 
     switch (type) {
-    case LIMINE_MEMMAP_USABLE:
-      serial_printf(MARK_AS_BOLD("Usable                 : "));
-      break;
-    case LIMINE_MEMMAP_RESERVED:
-      serial_printf(MARK_AS_BOLD("Reserved               : "));
-      break;
-    case LIMINE_MEMMAP_ACPI_RECLAIMABLE:
-      serial_printf(MARK_AS_BOLD("ACPI reclaimable       : "));
-      break;
-    case LIMINE_MEMMAP_ACPI_NVS:
-      serial_printf(MARK_AS_BOLD("ACPI NVS               : "));
-      break;
-    case LIMINE_MEMMAP_BAD_MEMORY:
-      serial_printf(MARK_AS_BOLD("Bad                    : "));
-      break;
-    case LIMINE_MEMMAP_BOOTLOADER_RECLAIMABLE:
-      serial_printf(MARK_AS_BOLD("Bootloader reclaimable : "));
-      break;
-    case LIMINE_MEMMAP_EXECUTABLE_AND_MODULES:
-      serial_printf(MARK_AS_BOLD("Executable and modules : "));
-      break;
-    case LIMINE_MEMMAP_FRAMEBUFFER:
-      serial_printf(MARK_AS_BOLD("Framebuffer            : "));
-      break;
-    case LIMINE_MEMMAP_RESERVED_MAPPED:
-      serial_printf(MARK_AS_BOLD("Reserved mapped        : "));
-      break;
-    default:
-      serial_printf(MARK_AS_BOLD("Unknown  type          : "));
-      break;
+      case LIMINE_MEMMAP_USABLE:
+        serial_printf(MARK_AS_BOLD("Usable                 : "));
+        break;
+      case LIMINE_MEMMAP_RESERVED:
+        serial_printf(MARK_AS_BOLD("Reserved               : "));
+        break;
+      case LIMINE_MEMMAP_ACPI_RECLAIMABLE:
+        serial_printf(MARK_AS_BOLD("ACPI reclaimable       : "));
+        break;
+      case LIMINE_MEMMAP_ACPI_NVS:
+        serial_printf(MARK_AS_BOLD("ACPI NVS               : "));
+        break;
+      case LIMINE_MEMMAP_BAD_MEMORY:
+        serial_printf(MARK_AS_BOLD("Bad                    : "));
+        break;
+      case LIMINE_MEMMAP_BOOTLOADER_RECLAIMABLE:
+        serial_printf(MARK_AS_BOLD("Bootloader reclaimable : "));
+        break;
+      case LIMINE_MEMMAP_EXECUTABLE_AND_MODULES:
+        serial_printf(MARK_AS_BOLD("Executable and modules : "));
+        break;
+      case LIMINE_MEMMAP_FRAMEBUFFER:
+        serial_printf(MARK_AS_BOLD("Framebuffer            : "));
+        break;
+      case LIMINE_MEMMAP_RESERVED_MAPPED:
+        serial_printf(MARK_AS_BOLD("Reserved mapped        : "));
+        break;
+      default:
+        serial_printf(MARK_AS_BOLD("Unknown  type          : "));
+        break;
     }
 
     serial_printf("Base: 0x%016lx, Length: %lu MiB\r\n", base,
@@ -111,18 +105,16 @@ void kmain(void) {
   clear_screen(0x00000000);
   kprintf("Welcome to %s!\n", "MyOS");
 
-
   // printMemoryMap();
 
+  void* addr = getRSDT();
 
-  void *addr = getRSDT();
-
-  if (addr == NULL){
+  if (addr == NULL) {
     LOG_ERROR("Unable to get RSDT!");
     hcf();
   }
 
-  if(!initACPI(addr, &phys_to_virt)){
+  if (!initACPI(addr, &phys_to_virt)) {
     LOG_ERROR("ACPI init faild!");
     hcf();
   }
@@ -130,10 +122,24 @@ void kmain(void) {
   LOG_NEWLINE();
   LOG_DEBUG("CPU Count: %lu\n", getMADTEntryCount(0));
 
+  init_timer();
+
   DISABLE_INT;
   init_apic();
   ENABLE_INT;
 
-  while (1)
-    ;
+  // sleep_millis(10);
+
+  // init_apic_timer();
+
+  // sleep_millis(1);
+
+  // LOG_DEBUG("Timer tick: %lu\n", get_apic_timer_value());
+
+  size_t counter = 0;
+  while (1) {
+    // LOG_DEBUG("Timer tick: %lu\n", get_apic_timer_value());
+    kprintf("Welcome to %s!, Count %lu\n", "MyOS", counter++);
+    sleep_millis(1000);
+  }
 }

@@ -124,6 +124,12 @@ struct __attribute__((packed)) fadt_s {
 
 struct __attribute__((packed)) hpet_s {
   struct acpiSdtHeader_s sdtHeader;
+  uint32_t eventTimerBlockId;
+  uint32_t reserved;
+  uint64_t address;
+  uint8_t id;
+  uint16_t minTicks;
+  uint8_t pageProtection;
 };
 
 struct __attribute__((packed)) mcfg_s {
@@ -163,3 +169,5 @@ uint32_t getMADTFlags(void);
 size_t getMADTEntryCount(size_t type);
 
 void* getMADTApicEntry(size_t type);
+
+struct hpet_s* getHpet(void);

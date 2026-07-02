@@ -126,3 +126,11 @@ void* getMADTApicEntry(size_t type) {
   }
   return NULL;
 }
+
+struct hpet_s* getHpet(void) {
+  if (acpiState.hpet == NULL) {
+    return NULL;
+  }
+
+  return acpiState.hpet;
+}
