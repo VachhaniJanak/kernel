@@ -134,3 +134,57 @@ struct hpet_s* getHpet(void) {
 
   return acpiState.hpet;
 }
+
+size_t getMCFGNumEntries(void) {
+  if (acpiState.mcfg == NULL) {
+    return 0;
+  }
+
+  size_t length = acpiState.mcfg->sdtHeader.length;
+  length -= sizeof(struct acpiSdtHeader_s);
+
+  return length / sizeof(struct mcfgsEntry_s);
+}
+
+void* getMCFGEntry(size_t index) {
+  if (acpiState.mcfg == NULL) {
+    return NULL;
+  }
+
+  size_t numEntries = getMCFGNumEntries();
+  if (index >= numEntries) {
+    return NULL;
+  }
+
+  return &acpiState.mcfg->entries[index];
+}
+
+void debugMCFG(void) {
+  if (acpiState.mcfg == NULL) {
+    LOG_DEBUG("MCFG is NULL\n");
+    return;
+  }
+
+  LOG_NEWLINE();
+  LOG_DEBUG("MCFG Header:\n");
+  LOG_DEBUG("Signature: %.4s\n", acpiState.mcfg->sdtHeader.signature);
+  LOG_DEBUG("Length: %u\n", acpiState.mcfg->sdtHeader.length);
+  LOG_DEBUG("Revision: %u\n", acpiState.mcfg->sdtHeader.revision);
+  LOG_DEBUG("Checksum: %u\n", acpiState.mcfg->sdtHeader.checksum);
+  LOG_DEBUG("OEM ID: %.6s\n", acpiState.mcfg->sdtHeader.oemid);
+  LOG_DEBUG("OEM Table ID: %.8s\n", acpiState.mcfg->sdtHeader.oem_tableid);
+  LOG_DEBUG("OEM Revision: %u\n", acpiState.mcfg->sdtHeader.oem_revision);
+  LOG_DEBUG("Creator ID: %u\n", acpiState.mcfg->sdtHeader.creator_id);
+  LOG_DEBUG("Creator Revision: %u\n",
+            acpiState.mcfg->sdtHeader.creator_revision);
+  LOG_DEBUG("Number of MCFG Entries: %zu\n", getMCFGNumEntries());
+
+  struct mcfgsEntry_s *entry = acpiState.mcfg->entries;
+  for (size_t i = 0; i < getMCFGNumEntries(); i++) {
+    LOG_DEBUG("MCFG Entry %zu:\n", i + 1);
+    LOG_DEBUG("Base Address: 0x%016lx\n", entry[i].baseAddress);
+    LOG_DEBUG("PCI Segment Group Number: %u\n", entry[i].pciSegmentGroupNumber);
+    LOG_DEBUG("Start Bus Number: %u\n", entry[i].startBusNumber);
+    LOG_DEBUG("End Bus Number: %u\n", entry[i].endBusNumber);
+  }
+}

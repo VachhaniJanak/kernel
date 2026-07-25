@@ -107,8 +107,8 @@ run:
 		-enable-kvm \
 		-smp 1 \
 		-m 512M \
-		-device ich9-ahci,id=ahci \
 		-drive file=$(IMG),format=raw,if=none,id=disk0 \
+		-device ich9-ahci,id=ahci \
 		-device ide-hd,drive=disk0,bus=ahci.0 \
 		-d int,guest_errors,cpu_reset \
 		-D test/qemu.log \

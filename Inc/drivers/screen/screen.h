@@ -1,5 +1,7 @@
 #pragma once
+
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 typedef struct {
@@ -13,6 +15,14 @@ typedef struct {
 bool init_screen(void);
 
 void reset_screen_axis(void);
+
+size_t get_screen_font_width(void);
+
+size_t get_screen_font_height(void);
+
+size_t get_screen_tab_size(void);
+
+void set_screen_tab_size(size_t size);
 
 void set_screen_margin(size_t x, size_t y);
 
@@ -36,6 +46,12 @@ size_t get_screen_space_line(void);
 
 void clear_screen(uint32_t rgb);
 
-void screen_draw_char(screenChar_t *character);
+void screen_draw_char(screenChar_t* character);
 
-int kprintf(const char *format, ...);
+int kprintf(const char* format, ...);
+
+void screen_putchar(char c);
+
+void screen_rmchar(size_t count);
+
+void screen_rmline(size_t count);

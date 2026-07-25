@@ -46,7 +46,7 @@ bool init_pmm(uintptr_t usable_addr, size_t usable_size, size_t page_size,
   buddy_init(&usable_memory, (void *)new_base_addr, metadata_addr,
              free_area_addr, free_size, page_size);
 
-#ifdef DEBUG
+#ifdef MM_DEBUG
   LOG_NEWLINE();
   LOG_DEBUG("[PMM] Free space base addr : 0x%lx\n", usable_addr);
 

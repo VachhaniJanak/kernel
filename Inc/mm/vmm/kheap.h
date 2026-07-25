@@ -13,3 +13,5 @@ void kheap_debug(void);
 void *khalloc_page(void);
 
 void khfree_page(void *addr);
+
+void *kmalloc_phys_addr(void *virt_addr);

@@ -270,3 +270,16 @@ Node *rb_search(RBTree *t, void *addr) {
       return x;
   return NULL;
 }
+
+Node* rb_search_approx(RBTree* t, void* addr) {
+  Node* x = t->root;
+  while (x != t->nil) {
+    if (addr < x->addr)
+      x = x->left;
+    else if (addr >= x->addr && addr < (void*)((uintptr_t)x->addr + x->size))
+      return x;
+    else
+      x = x->right;
+  }
+  return NULL;
+}

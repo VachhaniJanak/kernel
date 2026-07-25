@@ -165,12 +165,15 @@ void init_apic(void) {
 
   uint8_t lapic_id = lapic_read(APIC_APICID) >> 24;
 
+  // Set up IOAPIC redirection for keyboard IRQ (IRQ1) to vector 33
   set_ioapic_redirection(1, 33, lapic_id, false);
 
+#ifdef APIC_DEBUG
   uint32_t ioapicver = ioapic_read(IOAPICVER);
   uint32_t max_redirection_entries = ((ioapicver >> 16) & 0xFF) + 1;
   LOG_DEBUG("IOAPIC Version: 0x%X, Max Redirection Entries: %u\n",
             ioapicver & 0xFF, max_redirection_entries);
+#endif
 
   init_apic_timer();
 }

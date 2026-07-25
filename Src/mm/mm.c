@@ -112,7 +112,7 @@ int mm_init(void) {
     return -1;
   }
 
-#ifdef DEBUG
+#ifdef MM_DEBUG
   LOG_NEWLINE();
   LOG_DEBUG("HHDM Offset: 0x%lx\n", hhdm_offset);
   print_kernel_addr();
@@ -150,8 +150,6 @@ int mm_init(void) {
     return -1;
   }
 
-  // print_buddy_state(get_buddy());
-
   return 0;
 }
 
@@ -163,3 +161,4 @@ bool mmap(void* virt_addr, void* phys_addr) {
 void ummap(void* virt_addr) {
   unmap_page(virt_addr, phys_to_virt, virt_to_phys);
 }
+

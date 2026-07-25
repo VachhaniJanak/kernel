@@ -40,3 +40,17 @@ int kmemcmp(const void* s1, const void* s2, size_t n) {
 
   return 0;
 }
+
+char *kstrchr(const char *s, int c)
+{
+    while (*s) {
+        if (*s == (char)c)
+            return (char *)s;
+        s++;
+    }
+
+    if (c == '\0')
+        return (char *)s;
+
+    return NULL;
+}

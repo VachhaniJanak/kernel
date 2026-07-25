@@ -54,6 +54,8 @@ target_compile_options(${CMAKE_PROJECT_NAME}.elf PRIVATE
     # Optimization
     -O0 -g3
     -DDEBUG
+    # -DAHCI_DEBUG
+    -DPS2_DEBUG
     # -O3
 )
 
@@ -97,9 +99,11 @@ target_sources(${CMAKE_PROJECT_NAME}.elf PRIVATE
     Src/arch/x86_64/hpet.c
 
     Src/drivers/serial/serial.c
-    Src/drivers/screen/charac.c
     Src/drivers/screen/screen.c
     Src/drivers/acpi/acpi.c
+    Src/drivers/pcie/pcie.c
+    Src/drivers/ahci/ahci.c
+    Src/drivers/keyboard/ps.c
 
     Src/mm/mm.c
     Src/mm/debug.c
@@ -115,7 +119,22 @@ target_sources(${CMAKE_PROJECT_NAME}.elf PRIVATE
     Src/mm/vmm/vmm.c
     Src/mm/vmm/rbtree.c
     Src/mm/vmm/kheap.c
+
+    Src/consolefont/fonts/terminus24b.o
+    Src/consolefont/psf.c
+
+    Src/vfs/vfs.c
+    
+    Src/vfs/fat/gpt.c
+    Src/vfs/fat/utils.c
+    Src/vfs/fat/storage.c
+
+    Src/vfs/fat/diskio.c
+    Src/vfs/fat/ff.c
+    Src/vfs/fat/ffsystem.c
+    Src/vfs/fat/ffunicode.c
 )
+
 
 
 

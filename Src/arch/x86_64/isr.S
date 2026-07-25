@@ -73,3 +73,5 @@ DEFINE_ISR_X86_64(double_fault_isr);
 DEFINE_ISR_NE_X86_64(timer_irq_isr);
 
 DEFINE_ISR_NE_X86_64(keyboard_irq_isr);
+
+DEFINE_ISR_NE_X86_64(ahci_irq_isr);

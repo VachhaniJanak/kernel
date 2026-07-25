@@ -1,23 +1,24 @@
 #include <boot/boot.h>
 #include <drivers/screen/screen.h>
 #include <platform/attributes.h>
+#include <consolefont/font.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <utils/printf.h>
 #include <utils/utils.h>
-
-extern uint8_t chars[][13];
+#include <utils/log.h>
 
 static struct FrameBuffer_s fbr;
 
 #define TEXT_MODE_MARGIN_X 5
 #define TEXT_MODE_MARGIN_Y 5
-#define SPACE_BTW_CHAR 3
-#define SPACE_BTW_LINE 4
+#define SPACE_BTW_CHAR 0
+#define SPACE_BTW_LINE 2
+#define TAB_SIZE 4
 
-static uint8_t font_width = 7;
-static uint8_t font_height = 12;
+static uint8_t font_width = 0;
+static uint8_t font_height = 0;
 
 static size_t margin_x = TEXT_MODE_MARGIN_X;
 static size_t margin_y = TEXT_MODE_MARGIN_Y;
@@ -28,12 +29,18 @@ static size_t space_btw_line = SPACE_BTW_LINE;
 static size_t screen_x = TEXT_MODE_MARGIN_X;
 static size_t screen_y = TEXT_MODE_MARGIN_Y;
 
+static size_t tab_size = TAB_SIZE;
+
 bool init_screen(void) {
 
   getFramebufferAddr(&fbr);
 
   if (fbr.address == NULL)
     return false;
+
+
+  font_width = get_psf_glyph_width();
+  font_height = get_psf_glyph_height();
 
   switch (fbr.bpp) {
   case 32:
@@ -63,6 +70,14 @@ void set_screen_space(size_t char_space, size_t line_space) {
   space_btw_char = char_space;
   space_btw_line = line_space;
 }
+
+size_t get_screen_font_width(void) { return font_width; }
+
+size_t get_screen_font_height(void) { return font_height; }
+
+size_t get_screen_tab_size(void) { return tab_size; }
+
+void set_screen_tab_size(size_t size) { tab_size = size; }
 
 size_t get_screen_width(void) { return fbr.width; }
 
@@ -155,17 +170,24 @@ static inline void _draw_char(screenChar_t *character,
   uint32_t bg_color = mk_color(character->bg_rgb);
   uint32_t fg_color = mk_color(character->fg_rgb);
 
-  int ch_idx = character->character - 32;
   uint32_t y = character->y_position;
   uint32_t x = character->x_position;
+  uint32_t bytes_per_row = (font_width + 7) / 8;
 
-  for (int j = font_height; j > -1; j--, y++) {
+  for (int row = 0; row < font_height; row++, y++) {
     x = character->x_position;
-    for (int i = font_width; i > -1; i--, x++)
-      if (chars[ch_idx][j] & (1 << i))
-        px_callback(addr + y * fbr.pitch + x * bypp, fg_color);
-      else
-        px_callback(addr + y * fbr.pitch + x * bypp, bg_color);
+   
+    for (uint32_t byte = 0; byte < bytes_per_row; byte++) {  
+      size_t idx = row * bytes_per_row + byte;
+      uint8_t bits = get_psf_glyphs(character->character)[idx];
+
+      for (int bit = 0; bit < 8; bit++, x++) {
+        if (bits & (0x80 >> bit))
+          px_callback(addr + y * fbr.pitch + x * bypp, fg_color);
+        else
+          px_callback(addr + y * fbr.pitch + x * bypp, bg_color);
+      }
+    }
   }
 }
 
@@ -200,11 +222,12 @@ static inline void move_one_lineup(void) {
     uint8_t *dst = addr + (y - offset) * fbr.pitch;
 
     kmemmove(dst, src, fbr.pitch * offset);
+    kmemset(src, 0, fbr.pitch * offset);
   }
 }
 
 static inline void need_scroll(void) {
-  if ((screen_y + font_height + margin_y) >= fbr.height) {
+  if (screen_y + font_height + margin_y >= fbr.height) {
     move_one_lineup();
     screen_y -= font_height + space_btw_line;
   }
@@ -216,16 +239,43 @@ static inline void set_new_line(void) {
   need_scroll();
 }
 
-static inline void putchar(char c, void *arg) {
-  UNUSED(arg);
+static inline void carrage_return(void) {
+  uint8_t *addr = (uint8_t *)fbr.address;
+  size_t offset = screen_y * fbr.pitch;
+  size_t num_bytes = fbr.pitch * (font_height + space_btw_line);
+  
+  screen_x = margin_x;
 
+  kmemset(addr + offset, 0, num_bytes);
+}
+
+static inline void apply_tab(void){
+  screen_x += tab_size * (font_width + space_btw_char);
+  
+  if (screen_x >= fbr.width) {
+    set_new_line();
+  }
+}
+
+inline void _putchar(char c){
   if (c == '\n') {
     set_new_line();
     return;
   }
 
-  if ((screen_x + font_width + margin_x) >= fbr.width)
+  if (c == '\r') {
+    carrage_return();
+    return;
+  }
+
+  if (c == '\t') {
+    apply_tab();
+    return;
+  }
+
+  if ((screen_x + font_width + margin_x) >= fbr.width){
     set_new_line();
+  }
 
   screenChar_t character = {.x_position = screen_x,
                             .y_position = screen_y,
@@ -235,6 +285,48 @@ static inline void putchar(char c, void *arg) {
 
   screen_draw_char(&character);
   screen_x += font_width + space_btw_char;
+}
+
+static inline void putchar(char c, void *arg) {
+  UNUSED(arg);
+  _putchar(c);
+}
+
+void screen_putchar(char c) {
+  _putchar(c);
+}
+
+static inline void _rmchar(void) {
+  if (screen_x == margin_x && screen_y == margin_y){
+    return;
+  }
+
+  if (screen_x == margin_x) {
+    screen_y -= font_height + space_btw_line;
+    screen_x = fbr.width - font_width - margin_x;
+    return;
+  } 
+
+  screen_x -= font_width + space_btw_char;
+}
+
+void screen_rmchar(size_t count) {
+  for (size_t i = 0; i < count; i++){
+    _rmchar();
+    _putchar(' ');
+    _rmchar();
+  }
+}
+
+void screen_rmline(size_t count){
+  for (size_t i = 0; i < count && screen_y > margin_y; i++){
+    if (screen_y == margin_y){
+      return;
+    }
+
+    carrage_return();
+    screen_y -= font_height + space_btw_line;
+  }
 }
 
 int kprintf(const char *format, ...) {

@@ -89,12 +89,14 @@ WEAK void double_fault_isr_handler(struct interrupt_frame_s* frame) {
 }
 
 WEAK void timer_irq_isr_handler(void) { 
-  LOG_DEBUG("Timer IRQ\n");
   lapic_eoi(); 
 }
 
 WEAK void keyboard_irq_isr_handler(void) {
   volatile int scancode = inb(0x60);
-  LOG_ERROR("Keyboard IRQ: 0x%02x", scancode);
+  lapic_eoi();
+}
+
+WEAK void ahci_irq_isr_handler(void) {
   lapic_eoi();
 }

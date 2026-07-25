@@ -15,6 +15,8 @@ void* kmemmove(void* dest, const void* src, size_t n);
 
 int kmemcmp(const void* s1, const void* s2, size_t n);
 
+char *kstrchr(const char *s, int c);
+
 static inline uint64_t log2(uint64_t n) { return 63 - __builtin_clzll(n); }
 
 static inline uint64_t nxt_pow2(uint64_t n) {

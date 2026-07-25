@@ -26,3 +26,4 @@ void rb_create(RBTree *t);
 void rb_insert(RBTree *t, void *addr, size_t size, bool is_continuous);
 bool rb_delete(RBTree *t, void *addr, size_t *size, bool *is_continuous);
 Node *rb_search(RBTree *t, void *addr);
+Node *rb_search_approx(RBTree *t, void *addr);

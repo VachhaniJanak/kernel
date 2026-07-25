@@ -178,3 +178,20 @@ void kheap_debug(void) {
   }
   LOG_PRINT("NULL\n");
 }
+
+void *kmalloc_phys_addr(void *virt_addr) {
+
+  if (virt_addr == NULL)
+    return NULL;
+
+  void *addr = round_to_page_boundary(virt_addr, mm_state->page_size);
+  void *phys_addr = map_phys_addr(addr, phys_to_virt);
+
+  if (phys_addr == NULL)
+    return NULL;
+
+  uintptr_t offset = (uintptr_t)virt_addr - (uintptr_t)addr;
+  phys_addr = (void *)((uintptr_t)phys_addr + offset);
+
+  return phys_addr;
+}

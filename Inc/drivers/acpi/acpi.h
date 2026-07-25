@@ -132,8 +132,18 @@ struct __attribute__((packed)) hpet_s {
   uint8_t pageProtection;
 };
 
+struct __attribute__((packed)) mcfgsEntry_s {
+  uint64_t baseAddress;
+  uint16_t pciSegmentGroupNumber;
+  uint8_t startBusNumber;
+  uint8_t endBusNumber;
+  uint32_t reserved;
+};
+
 struct __attribute__((packed)) mcfg_s {
   struct acpiSdtHeader_s sdtHeader;
+  uint64_t reserved;
+  struct mcfgsEntry_s entries[];
 };
 
 struct __attribute__((packed)) waet_s {
@@ -171,3 +181,9 @@ size_t getMADTEntryCount(size_t type);
 void* getMADTApicEntry(size_t type);
 
 struct hpet_s* getHpet(void);
+
+size_t getMCFGNumEntries(void);
+
+void *getMCFGEntry(size_t index);
+
+void debugMCFG(void);
