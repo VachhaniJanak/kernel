@@ -2,10 +2,10 @@
 .cache
 .idea
 .vscode
-docs
 
 # Compiled object files
 build
 
 #others
 test
+docs
