@@ -2,6 +2,7 @@
 .cache
 .idea
 .vscode
+.docs
 
 # Compiled object files
 build
