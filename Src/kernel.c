@@ -16,6 +16,8 @@
 #include <kernel.h>
 #include <mm/mm.h>
 #include <mm/vmm/kheap.h>
+#include <platform/attributes.h>
+#include <scheduler/scheduler.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -23,9 +25,8 @@
 #include <utils/utils.h>
 #include <vfs/vfs.h>
 
-// Halt and catch fire function.
-static void hcf(void) {
-  for (;;) asm("hlt");
+static void loop(void) {
+  while (true){}
 }
 
 void kmain(void) {
@@ -37,7 +38,7 @@ void kmain(void) {
 
   if (!isBootOk()) {
     LOG_ERROR("Boot failed");
-    hcf();
+    loop();
   }
 
   DISABLE_INT;
@@ -52,23 +53,23 @@ void kmain(void) {
 
   mm_init();
 
-  // set_stack_top(KERNEL_STACK_BASE);
+  set_stack_top(KERNEL_STACK_BASE);
 
   if (!init_screen()) {
     LOG_ERROR("Framebuffer initialization failed!");
-    hcf();
+    loop();
   }
 
   void* addr = getRSDT();
 
   if (addr == NULL) {
     LOG_ERROR("Unable to get RSDT!");
-    hcf();
+    loop();
   }
 
   if (!initACPI(addr, &phys_to_virt)) {
     LOG_ERROR("ACPI init faild!");
-    hcf();
+    loop();
   }
 
   LOG_NEWLINE();
@@ -90,17 +91,15 @@ void kmain(void) {
 
   if (!init_vfs()) {
     LOG_ERROR("VFS initialization failed!");
-    hcf();
+    loop();
   }
 
   kprintf("Initialization complete!\n");
 
-  keyboard_event_t event;
-  while (1) {
-    if (ps2_get_key_event(&event)) {
-      kprintf("Scancode: 0x%02x, Action: %s, Extended: %s\n", event.scancode,
-              event.action == KEY_EVENT_PRESS ? "Press" : "Release",
-              event.extended ? "Yes" : "No");
-    }
+  init_scheduler();
+
+  while(true) {
+    log_error("scheduler is exited\n");
+    sleep_millis(1000);
   }
 }

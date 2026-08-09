@@ -34,6 +34,17 @@ void gdt_init(void) {
                 GDT_ACCESS_PRESENT | GDT_ACCESS_DESCRIPTOR_TYPE |
                     GDT_ACCESS_PRIVILEGE_RING0 | GDT_ACCESS_READABLE_WRITABLE);
 
+  // User code segment
+  set_gdt_entry(GDT_USER_CODE, 0, 0, GDT_FLAG_64BIT_MODE,
+                GDT_ACCESS_PRESENT | GDT_ACCESS_DESCRIPTOR_TYPE |
+                    GDT_ACCESS_PRIVILEGE_RING3 | GDT_ACCESS_EXECUTABLE |
+                    GDT_ACCESS_READABLE_WRITABLE);
+
+  // User data segment
+  set_gdt_entry(GDT_USER_DATA, 0, 0, 0,
+                GDT_ACCESS_PRESENT | GDT_ACCESS_DESCRIPTOR_TYPE |
+                    GDT_ACCESS_PRIVILEGE_RING3 | GDT_ACCESS_READABLE_WRITABLE);
+
   GDTR_t gdt_ptr = {
       .limit = sizeof(gdt_table) - 1,
       .base = (uint64_t)gdt_table,

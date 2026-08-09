@@ -6,7 +6,7 @@
 #include <stdint.h>
 #include <utils/log.h>
 
-WEAK void page_fault_isr_handler(struct interrupt_frame_s* frame) {
+WEAK void page_fault_isr_handler(struct interrupt_ecframe_s* frame) {
   LOG_ERROR("Page Fault");
   LOG_ERROR("Address   : 0x%lx", page_fault_addr());
   LOG_ERROR("Error code: 0x%lx", frame->error_code);
@@ -32,7 +32,7 @@ WEAK void page_fault_isr_handler(struct interrupt_frame_s* frame) {
   while (1);
 }
 
-WEAK void gp_fault_isr_handler(struct interrupt_frame_s* frame) {
+WEAK void gp_fault_isr_handler(struct interrupt_ecframe_s* frame) {
   UNUSED(frame);
   LOG_ERROR("General Protection Fault");
 
@@ -70,26 +70,27 @@ WEAK void gp_fault_isr_handler(struct interrupt_frame_s* frame) {
   while (1);
 }
 
-WEAK void invalid_tss_isr_handler(struct interrupt_frame_s* frame) {
+WEAK void invalid_tss_isr_handler(struct interrupt_ecframe_s* frame) {
   UNUSED(frame);
   LOG_ERROR("TSS Fault\n");
   while (1);
 }
 
-WEAK void invalid_opcode_isr_handler(struct interrupt_frame_s* frame) {
+WEAK void invalid_opcode_isr_handler(struct interrupt_ecframe_s* frame) {
   UNUSED(frame);
   LOG_ERROR("Invalid Opcode\n");
   while (1);
 }
 
-WEAK void double_fault_isr_handler(struct interrupt_frame_s* frame) {
+WEAK void double_fault_isr_handler(struct interrupt_ecframe_s* frame) {
   UNUSED(frame);
   LOG_ERROR("Double Fault\n");
   while (1);
 }
 
-WEAK void timer_irq_isr_handler(void) { 
-  lapic_eoi(); 
+WEAK uint64_t timer_irq_isr_handler(struct scheduler_frame_s* frame) {
+  UNUSED(frame);
+  lapic_eoi();
 }
 
 WEAK void keyboard_irq_isr_handler(void) {
@@ -97,6 +98,4 @@ WEAK void keyboard_irq_isr_handler(void) {
   lapic_eoi();
 }
 
-WEAK void ahci_irq_isr_handler(void) {
-  lapic_eoi();
-}
+WEAK void ahci_irq_isr_handler(void) { lapic_eoi(); }

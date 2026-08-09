@@ -55,7 +55,8 @@ target_compile_options(${CMAKE_PROJECT_NAME}.elf PRIVATE
     -O0 -g3
     -DDEBUG
     # -DAHCI_DEBUG
-    -DPS2_DEBUG
+    # -DPS2_DEBUG
+    -DSCHEDULER_DEBUG
     # -O3
 )
 
@@ -133,6 +134,9 @@ target_sources(${CMAKE_PROJECT_NAME}.elf PRIVATE
     Src/vfs/fat/ff.c
     Src/vfs/fat/ffsystem.c
     Src/vfs/fat/ffunicode.c
+
+    Src/scheduler/scheduler.c
+    Src/scheduler/locks.c
 )
 
 

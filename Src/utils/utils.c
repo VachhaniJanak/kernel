@@ -54,3 +54,11 @@ char *kstrchr(const char *s, int c)
 
     return NULL;
 }
+
+void kstrcpy(char* dest, const char* src) {
+  while (*src) {
+    *dest++ = *src++;
+  }
+  *dest = '\0';
+}
+

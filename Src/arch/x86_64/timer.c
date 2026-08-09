@@ -12,11 +12,6 @@ static const uint64_t FS_PER_SEC = 1000000000000000ULL;
 static hpetRegisters_t* hpetRegs = NULL;
 static volatile size_t millis_ticks = 0;
 
-// void timer_irq_isr_handler(void) {
-//   // millis_ticks++;
-//   lapic_eoi();
-// }
-
 size_t get_counter_value(void) { return hpetRegs->mainCounterValue; }
 
 void sleep_millis(size_t milli) {

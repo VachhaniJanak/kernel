@@ -70,8 +70,20 @@ DEFINE_ISR_X86_64(invalid_opcode_isr);
 
 DEFINE_ISR_X86_64(double_fault_isr);
 
-DEFINE_ISR_NE_X86_64(timer_irq_isr);
-
 DEFINE_ISR_NE_X86_64(keyboard_irq_isr);
 
 DEFINE_ISR_NE_X86_64(ahci_irq_isr);
+
+
+.global timer_irq_isr                 
+.extern timer_irq_isr_handler       
+.type timer_irq_isr, @function
+timer_irq_isr:                        
+  PUSH_X86_64_REGS
+  mov %rsp, %rdi
+  call timer_irq_isr_handler
+  mov %rax, %rsp
+  POP_X86_64_REGS
+  iretq
+
+

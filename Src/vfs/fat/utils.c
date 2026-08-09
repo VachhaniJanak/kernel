@@ -30,7 +30,6 @@ static void print_protective_mbr_entry(protective_mbr_entry_t* entry) {
 void print_protective_mbr(protective_mbr_t* sector) {
   LOG_PRINT("\nProtective MBR:\n");
   LOG_PRINT("Signature: 0x%x\n", sector->signature);
-  protective_mbr_entry_t* entry = &sector->partition_table[0];
   LOG_PRINT("Partition Entry:\n");
 
   for (int i = 0; i < 4; i++) {

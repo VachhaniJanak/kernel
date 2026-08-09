@@ -60,3 +60,11 @@
 #define LOG_NEWLINE() serial_printf("\r\n");
 
 #define LOG_PRINT(fmt, ...) serial_printf(fmt, ##__VA_ARGS__);
+
+
+#define log_info LOG_INFO
+#define log_print LOG_PRINT
+#define log_debug LOG_DEBUG
+#define log_warn LOG_WARN
+#define log_error LOG_ERROR
+#define log_newline LOG_NEWLINE
