@@ -35,38 +35,7 @@ WEAK void page_fault_isr_handler(struct interrupt_ecframe_s* frame) {
 WEAK void gp_fault_isr_handler(struct interrupt_ecframe_s* frame) {
   UNUSED(frame);
   LOG_ERROR("General Protection Fault");
-
   LOG_ERROR("Error code: 0x%lx", frame->error_code);
-
-  if (frame->error_code & 0x1) {
-    LOG_ERROR("External event");
-  } else {
-    LOG_ERROR("Internal event");
-  }
-
-  if (frame->error_code & 0x2) {
-    LOG_ERROR("Descriptor location: GDT");
-  } else {
-    LOG_ERROR("Descriptor location: IDT");
-  }
-
-  if (frame->error_code & 0x4) {
-    LOG_ERROR("Descriptor location: LDT");
-  } else {
-    LOG_ERROR("Descriptor location: IDT");
-  }
-
-  if (frame->error_code & 0x8) {
-    LOG_ERROR("Descriptor location: IDT");
-  } else {
-    LOG_ERROR("Descriptor location: IDT");
-  }
-
-  if (frame->error_code & 0x10) {
-    LOG_ERROR("Descriptor location: IDT");
-  } else {
-    LOG_ERROR("Descriptor location: IDT");
-  }
   while (1);
 }
 

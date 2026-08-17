@@ -99,7 +99,7 @@ void kmain(void) {
   init_scheduler();
 
   while(true) {
-    log_error("scheduler is exited\n");
+    log_error("scheduler is exited");
     sleep_millis(1000);
   }
 }

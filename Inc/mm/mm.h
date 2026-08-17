@@ -51,3 +51,12 @@ static inline void* phys_to_virt(void* ptr) {
 bool mmap(void* virt_addr, void* phys_addr);
 
 void ummap(void* virt_addr);
+
+bool map_userspace(void *virt_addr, void *phys_addr, uint64_t flags);
+
+void unmap_userspace(void *virt_addr);
+
+bool allocate_userspace(void *virt_addr, size_t size, uint64_t flags);
+
+void free_userspace(void *addr, size_t size);
+

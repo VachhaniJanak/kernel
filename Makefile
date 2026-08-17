@@ -8,6 +8,9 @@ MOUNT = /mnt/diskimg
 GRUBCONFIG = test/boot/grub.cfg
 LIMINECONFIG = test/boot
 
+USERPROGRAMS_SRC = test/userprograms/bin
+USERPROGRAMS_DES = userprograms
+
 LOOPDRIVE := $(shell sudo losetup -f)
 LOOPDRIVEP1 := "p1"
 LOOPDRIVEP2 := "p2"
@@ -91,6 +94,19 @@ loadkernel:
 	@sudo mkdir -p $(MOUNT)/boot
 	@echo ">> coping file $(TARGETELF) to $(MOUNT)/boot"
 	@sudo cp $(TARGETELF) $(MOUNT)/boot
+	@sudo umount $(MOUNT)
+	@sudo losetup -d $(LOOPDRIVE)   # detach loop device
+	@echo ">> Done"
+
+loaduserprograms:
+	@echo ">> Coping user programs to disk....."
+	@sudo mkdir -p $(MOUNT)
+	@sudo losetup -fP $(IMG)
+	@sudo mount $(LOOPDRIVE)$(LOOPDRIVEP2) $(MOUNT)
+	@echo ">> creating dir $(MOUNT)/$(USERPROGRAMS_DES)"
+	@sudo mkdir -p $(MOUNT)/$(USERPROGRAMS_DES)
+	@echo ">> coping files from $(USERPROGRAMS_SRC) to $(MOUNT)/$(USERPROGRAMS_DES)"
+	@sudo cp -r $(USERPROGRAMS_SRC)/* $(MOUNT)/$(USERPROGRAMS_DES)
 	@sudo umount $(MOUNT)
 	@sudo losetup -d $(LOOPDRIVE)   # detach loop device
 	@echo ">> Done"

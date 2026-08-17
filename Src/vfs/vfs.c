@@ -133,3 +133,25 @@ int vfs_write(vfs_t* vfs, const void* buffer, size_t bytes) {
 
   return bw;
 }
+
+int vfs_seek(vfs_t* vfs, size_t position) {
+  if (vfs->file == NULL) {
+    return -1;
+  }
+
+  FRESULT fr = f_lseek(vfs->file, position);
+
+  if (fr != FR_OK) {
+    return fr;
+  }
+
+  return 0;
+}
+
+size_t vfs_get_file_size(vfs_t* vfs) {
+  if (vfs->file == NULL) {
+    return 0;
+  }
+
+  return f_size(vfs->file);
+}

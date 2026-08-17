@@ -29,6 +29,7 @@
 #define MMU_WRITABLE (1 << 1)
 #define MMU_USER_MEMORY (1 << 2)
 #define MMU_PDE_TWO_MB (1 << 7)
+#define MMU_NX (1ULL << 63)
 
 static inline uintptr_t get_page_table_addr(void) {
   uintptr_t page_table_addr;

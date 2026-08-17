@@ -50,7 +50,7 @@ void *kmalloc(size_t size) {
   if (size <= MAX_SIZE_SMALL_OBJECTS)
     return sslub_alloc(&sslub_state, size);
 
-  if (size < MAX_SIZE_LARGE_OBJECTS)
+  if (size <= MAX_SIZE_LARGE_OBJECTS)
     return lslub_alloc(&lslub_state, size);
 
   return NULL;

@@ -1,7 +1,7 @@
 #pragma once
 
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #define PROCESS_NAME_LEN 32
 #define THREAD_NAME_LEN 32
@@ -19,7 +19,8 @@ typedef struct thread_s {
   size_t tid;
   char name[THREAD_NAME_LEN];
   task_status_t status;
-  void* stack_ptr;
+  void* user_stack;
+  void* kernel_stack;
   void* current_stack_ptr;
   size_t wakeup_time;
   struct thread_s* next;
@@ -46,6 +47,13 @@ struct scheduler_state_s {
   size_t next_pid;
   size_t next_tid;
 };
+
+// This structure holds data specific to ONE CPU core.
+typedef struct {
+  uint64_t user_rsp;    // Offset 0x00
+  uint64_t kernel_rsp;  // Offset 0x08
+  uint64_t cpu_id;      // Offset 0x10
+} cpu_local_data_t;
 
 void init_scheduler(void);
 

@@ -5,10 +5,9 @@
 static TSS_t tss __attribute__((aligned(16)));
 
 void set_tss_desc(uint64_t base, uint32_t limit) {
-
   // TSS descriptor is the 5th entry in GDT (index 5, selector 0x28)
-  uint8_t *gdt_base = (uint8_t *)get_gdt_base();
-  TSSDesc_t *td = (TSSDesc_t *)(gdt_base + 8 * GDT_TSS);
+  uint8_t* gdt_base = (uint8_t*)get_gdt_base();
+  TSSDesc_t* td = (TSSDesc_t*)(gdt_base + 8 * GDT_TSS);
 
   // set limit
   td->limit_low = limit & 0xffff;
@@ -37,6 +36,10 @@ void tss_init(void) {
   set_tss_desc((uint64_t)&tss, sizeof(TSS_t) - 1);
 
   // Load the TSS
-  uint16_t tss_selector = GDT_TSS << 3; // Selector is index shifted by 3
+  uint16_t tss_selector = GDT_TSS << 3;  // Selector is index shifted by 3
   set_ltr(tss_selector);
+}
+
+void set_tss_ring_x_stack(void* ptr, uint8_t ring) {
+  tss.priv_stack[ring] = (uint64_t)ptr;
 }

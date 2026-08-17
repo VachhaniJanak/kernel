@@ -38,3 +38,5 @@ typedef struct __attribute__((packed)) {
 } TSSDesc_t;
 
 void tss_init(void);
+
+void set_tss_ring_x_stack(void* ptr, uint8_t ring);

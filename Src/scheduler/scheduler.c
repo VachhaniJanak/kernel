@@ -4,8 +4,10 @@
 #include <arch/x86_64/mmu.h>
 #include <arch/x86_64/stack.h>
 #include <arch/x86_64/timer.h>
+#include <arch/x86_64/tss.h>
 #include <drivers/screen/screen.h>
 #include <kernel.h>
+#include <mm/mm.h>
 #include <mm/vmm/kheap.h>
 #include <mm/vmm/vmm.h>
 #include <platform/attributes.h>
@@ -14,18 +16,29 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <syscall/syscall.h>
 #include <utils/log.h>
 #include <utils/utils.h>
+#include <vfs/vfs.h>
 
-#define KERNEL_CS_REGS 0x8
+#include "elf.h"
+
+// 0000 1000
+#define KERNEL_CS_REGS 0x08
+// 0001 0000
 #define KERNEL_SS_REGS 0x10
-#define USER_CS_REGS 0x1B
-#define USER_SS_REGS 0x23
+
+// 0001 1011
+#define USER_SS_REGS 0x1B
+// 0010 0011
+#define USER_CS_REGS 0x23
+
 #define RFLAGS_IF 0x202
 
 static struct scheduler_state_s scheduler_state = {0};
 static spinlock_t scheduler_state_lock = {0};
 static volatile size_t system_tick = 0;
+static cpu_local_data_t bsp_local_data = {0};
 
 static inline size_t get_system_time(void) { return system_tick; }
 
@@ -170,7 +183,8 @@ static thread_t* add_thread(process_t* process) {
 
     thread->tid = scheduler_state.next_tid++;
     thread->status = THREAD_NOTREADY;
-    thread->stack_ptr = NULL;
+    thread->user_stack = NULL;
+    thread->kernel_stack = NULL;
     thread->current_stack_ptr = NULL;
     thread->next = NULL;
 
@@ -192,7 +206,8 @@ static thread_t* add_thread(process_t* process) {
 
   new_thread->tid = scheduler_state.next_tid++;
   new_thread->status = THREAD_NOTREADY;
-  new_thread->stack_ptr = NULL;
+  new_thread->user_stack = NULL;
+  new_thread->kernel_stack = NULL;
   new_thread->current_stack_ptr = NULL;
   new_thread->next = NULL;
 
@@ -299,15 +314,15 @@ bool init_kernel_thread(const char* name, thread_t* thread, size_t stack_size,
 
   // Allocate stack for the thread
   uint64_t flags = MMU_PRESENT | MMU_WRITABLE;
-  thread->stack_ptr = vmalloc(stack_size, flags, false);
+  thread->kernel_stack = vmalloc(stack_size, flags, false);
 
-  if (thread->stack_ptr == NULL) {
+  if (thread->kernel_stack == NULL) {
     return false;
   }
 
   // Stack grows downwards
-  size_t stack_top = (size_t)thread->stack_ptr + stack_size;
-  thread->stack_ptr = (void*)stack_top;
+  size_t stack_top = (size_t)thread->kernel_stack + stack_size;
+  thread->kernel_stack = (void*)stack_top;
 
   size_t frame_size = sizeof(struct scheduler_frame_s);
   thread->current_stack_ptr = (void*)(stack_top - frame_size);
@@ -319,8 +334,8 @@ bool init_kernel_thread(const char* name, thread_t* thread, size_t stack_size,
   frame->regs.rsi = (uint64_t)arg;
   frame->regs.rdx = (uint64_t)thread;
   frame->rip = (uint64_t)thread_execution_wrapper;
-  frame->rsp = (uint64_t)thread->stack_ptr;
-  frame->regs.rbp = (uint64_t)thread->stack_ptr;
+  frame->rsp = (uint64_t)thread->kernel_stack;
+  frame->regs.rbp = (uint64_t)thread->kernel_stack;
   frame->rflags = RFLAGS_IF;
   frame->cs = KERNEL_CS_REGS;
   frame->ss = KERNEL_SS_REGS;
@@ -352,7 +367,10 @@ int create_kthread(const char* name, thread_t** thread, size_t stack_size,
     return -1;
   }
 
-  *thread = new_thread;
+  if (thread != NULL) {
+    *thread = new_thread;
+  }
+
   SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
   return new_thread->tid;
 }
@@ -425,12 +443,13 @@ static inline uint64_t scheduler(struct scheduler_frame_s* frame) {
 
   process_t* next_process = NULL;
   thread_t* next_thread = NULL;
+
   size_t attempts = 0;
+  process_t* temp_process = current_process;
+  thread_t* temp_thread = current_thread;
 
+  // Loop through all threads to find the next READY or SLEEPING thread
   while (attempts < scheduler_state.total_threads) {
-    process_t* temp_process = current_process;
-    thread_t* temp_thread = current_thread;
-
     if (!get_next_thread(&next_process, &next_thread, temp_process,
                          temp_thread)) {
       SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
@@ -473,17 +492,25 @@ static inline uint64_t scheduler(struct scheduler_frame_s* frame) {
   scheduler_state.current_process = next_process;
   scheduler_state.current_thread = next_thread;
 
-  set_page_table_addr((uint64_t)next_process->page_table);
+  // if (current_thread->tid != next_thread->tid) {
+  //   log_print("[SCHEDULER] thread %zu, thread %zu\n", current_thread->tid,
+  //             next_thread->tid);
+  // }
+
   SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
+
+  bsp_local_data.kernel_rsp = (uint64_t)next_thread->kernel_stack;
+
+  set_tss_ring_x_stack(next_thread->kernel_stack, 0);
+  set_page_table_addr((uint64_t)next_process->page_table);
   return (uint64_t)next_thread->current_stack_ptr;
 }
 
 uint64_t timer_irq_isr_handler(struct scheduler_frame_s* frame) {
-  lapic_eoi();
-
   system_tick += 10;
-
-  return scheduler(frame);
+  uint64_t addr = scheduler(frame);
+  lapic_eoi();
+  return addr;
 }
 
 static void idle(void* arg) {
@@ -516,7 +543,10 @@ void test_thread2(void* arg) {
   }
 }
 
+void foo(void);
+
 void init_scheduler(void) {
+  syscall_init(&bsp_local_data);
   spinlock_init(&scheduler_state_lock);
 
   unsigned long flags;
@@ -552,15 +582,13 @@ void init_scheduler(void) {
 
   kstrcpy(idle_thread->name, "idle");
   idle_thread->status = THREAD_READY;
-  idle_thread->stack_ptr = (void*)KERNEL_STACK_BASE;
+  idle_thread->kernel_stack = (void*)KERNEL_STACK_BASE;
   idle_thread->current_stack_ptr = 0;
 
   scheduler_state.idle_thread = idle_thread;
   scheduler_state.current_thread = scheduler_state.idle_thread;
 
-#ifdef SCHEDULER_DEBUG
-  log_info("Scheduler initialized");
-#endif
+  SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
 
   // Create test threads
   thread_t* thread1;
@@ -569,8 +597,138 @@ void init_scheduler(void) {
   thread_t* thread2;
   create_kthread("test_thread2", &thread2, 1024, test_thread2, NULL);
 
-  SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
+  foo();
+
+#ifdef SCHEDULER_DEBUG
+  log_info("Scheduler initialized");
+#endif
 
   // switch to the first thread
   idle(NULL);
+}
+
+void init_user_process(process_t* process, char* name) {
+  if (process == NULL) {
+    return;
+  }
+
+  kstrcpy(process->name, name);
+  process->page_table = (void*)get_page_table_addr();
+  process->thread_list_start = NULL;
+  process->thread_list_end = NULL;
+}
+
+bool init_user_thread(const char* name, thread_t* thread, size_t stack_size,
+                      void (*entry_point)(void*), void* arg) {
+  if (thread == NULL) {
+    return false;
+  }
+
+  kstrcpy(thread->name, name);
+  thread->status = THREAD_READY;
+
+  // Allocate stack for the thread
+  uint64_t flags = MMU_PRESENT | MMU_WRITABLE;
+
+  // base address for user thread
+  void* kernel_stack_base = (void*)KERNEL_STACK_BASE;
+  size_t lower_addr = 4 * (1 << 20);
+  lower_addr += (1 << 20) * 4;
+
+  thread->kernel_stack = (void*)lower_addr;
+
+  if (!allocate_userspace((void*)lower_addr, stack_size, flags)) {
+    return false;
+  }
+
+  flags |= MMU_USER_MEMORY;
+  lower_addr += (1 << 20) * 4;
+  thread->user_stack = (void*)lower_addr;
+
+  if (!allocate_userspace((void*)lower_addr, stack_size, flags)) {
+    return false;
+  }
+
+  // Stack grows downwards
+  size_t stack_top = (size_t)thread->kernel_stack + stack_size;
+  thread->kernel_stack = (void*)stack_top;
+
+  stack_top = (size_t)thread->user_stack + stack_size;
+  thread->user_stack = (void*)stack_top;
+
+  log_info("User thread '%s' kernel stack: 0x%lx, user stack: 0x%lx", name,
+           (uintptr_t)thread->kernel_stack, (uintptr_t)thread->user_stack);
+
+  // initialize the stack pointer for the thread
+  size_t frame_size = sizeof(struct scheduler_frame_s);
+  thread->current_stack_ptr =
+      (void*)((size_t)thread->kernel_stack - frame_size);
+
+  // Set up the initial stack frame for the thread
+  struct scheduler_frame_s* frame = thread->current_stack_ptr;
+
+  // frame->regs.rdi = (uint64_t)entry_point;
+  // frame->regs.rsi = (uint64_t)arg;
+  // frame->regs.rdx = (uint64_t)thread;
+  // frame->rip = (uint64_t)thread_execution_wrapper;
+  frame->regs.rdi = (uint64_t)arg;
+  frame->rip = (uint64_t)entry_point;
+  frame->rsp = (uint64_t)thread->user_stack;
+  frame->regs.rbp = (uint64_t)thread->user_stack;
+  frame->rflags = RFLAGS_IF;
+  frame->cs = USER_CS_REGS;
+  frame->ss = USER_SS_REGS;
+  return true;
+}
+
+int load_user_process(process_t** process, size_t stack_size,
+                      void (*main_func)(void*), void* arg) {
+  unsigned long flags;
+  SPIN_LOCK_ACQUIRE(&scheduler_state_lock, flags);
+
+  process_t* user_process = add_process();
+
+  if (user_process == NULL) {
+    SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
+    log_error("Failed to create user process");
+    return -1;
+  }
+
+  init_user_process(user_process, "user-demo");
+
+  thread_t* main_thread = add_thread(user_process);
+
+  if (!init_user_thread("main", main_thread, stack_size, main_func, arg)) {
+    log_error("Failed to create main thread");
+    SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
+    return -1;
+  }
+
+  SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
+
+  if (process != NULL) {
+    *process = user_process;
+  }
+
+  log_info("[%s] is created with PID: %zu, TID: %zu", user_process->name,
+           user_process->pid, main_thread->tid);
+
+  return 0;
+}
+
+void foo(void) {
+  vfs_list_directory("/userprograms/");
+
+  void* entry_point;
+  load_elf_file("/userprograms/demo.elf", &entry_point);
+
+  void (*user_main)(void*) = (void (*)(void*))entry_point;
+  int ret = load_user_process(NULL, PAGE_SIZE, user_main, NULL);
+
+  if (ret != 0) {
+    log_error("Failed to load user process: %d", ret);
+    return;
+  }
+
+  return;
 }

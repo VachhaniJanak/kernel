@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <vfs/fat/ff.h>
 
 typedef struct {
@@ -23,3 +24,6 @@ int vfs_read(vfs_t* vfs, void* buffer, size_t bytes);
 
 int vfs_write(vfs_t* vfs, const void* buffer, size_t bytes);
 
+int vfs_seek(vfs_t* vfs, size_t position);
+
+size_t vfs_get_file_size(vfs_t* vfs);

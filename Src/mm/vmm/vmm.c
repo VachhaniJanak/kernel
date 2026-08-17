@@ -60,7 +60,7 @@ bool map_page(void* virt_addr, void* phys_addr, uint64_t flags,
 
     kmemset(phys_to_virt(addr), 0, PDPT_SIZE);
     addr = (uint64_t*)((uint64_t)addr & PAGE_MASK);
-    current_table[pml4_idx] = (uint64_t)addr | MMU_PRESENT | MMU_WRITABLE;
+    current_table[pml4_idx] = (uint64_t)addr | MMU_PRESENT | MMU_WRITABLE | flags;
   }
 
   size_t pdpt_idx = PDPT_ADDR_TO_ENTRY_INDEX((uintptr_t)virt_addr);
@@ -76,7 +76,7 @@ bool map_page(void* virt_addr, void* phys_addr, uint64_t flags,
 
     kmemset(phys_to_virt(addr), 0, PAGE_DIRECTORY_SIZE);
     addr = (uint64_t*)((uint64_t)addr & PAGE_MASK);
-    current_table[pdpt_idx] = (uint64_t)addr | MMU_PRESENT | MMU_WRITABLE;
+    current_table[pdpt_idx] = (uint64_t)addr | MMU_PRESENT | MMU_WRITABLE | flags;
   }
 
   size_t pd_idx = PAGE_DIRECTORY_ADDR_TO_ENTRY_INDEX((uintptr_t)virt_addr);
@@ -91,7 +91,7 @@ bool map_page(void* virt_addr, void* phys_addr, uint64_t flags,
 
     kmemset(phys_to_virt(addr), 0, PAGE_TABLE_SIZE);
     addr = (uint64_t*)((uint64_t)addr & PAGE_MASK);
-    current_table[pd_idx] = (uint64_t)addr | MMU_PRESENT | MMU_WRITABLE;
+    current_table[pd_idx] = (uint64_t)addr | MMU_PRESENT | MMU_WRITABLE | flags;
   }
 
   size_t pt_idx = PAGE_TABLE_ADDR_TO_ENTRY_INDEX((uintptr_t)virt_addr);

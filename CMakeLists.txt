@@ -98,6 +98,8 @@ target_sources(${CMAKE_PROJECT_NAME}.elf PRIVATE
     Src/arch/x86_64/apic.c
     Src/arch/x86_64/timer.c
     Src/arch/x86_64/hpet.c
+    Src/arch/x86_64/syscall.c
+    Src/arch/x86_64/syscall.S
 
     Src/drivers/serial/serial.c
     Src/drivers/screen/screen.c
@@ -137,6 +139,9 @@ target_sources(${CMAKE_PROJECT_NAME}.elf PRIVATE
 
     Src/scheduler/scheduler.c
     Src/scheduler/locks.c
+    Src/scheduler/elf.c
+
+    Src/syscall/syscall.c
 )
 
 

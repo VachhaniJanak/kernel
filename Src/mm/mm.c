@@ -162,3 +162,51 @@ void ummap(void* virt_addr) {
   unmap_page(virt_addr, phys_to_virt, virt_to_phys);
 }
 
+bool map_userspace(void *virt_addr, void *phys_addr, uint64_t flags) {
+  return map_page(virt_addr, phys_addr, flags, phys_to_virt);
+}
+
+void unmap_userspace(void *virt_addr) {
+  unmap_page(virt_addr, phys_to_virt, virt_to_phys);
+}
+
+bool allocate_userspace(void *virt_addr, size_t size, uint64_t flags) {
+  const size_t page_size = mm_state.page_size;
+  size = round_to_page_size(size, page_size);
+  const size_t no_pages = size / page_size;
+
+  for (size_t i = 0; i < no_pages; i++) {
+    uint8_t* v_addr = (uint8_t*)virt_addr + page_size * i;
+    void* p_addr = pmm_alloc(page_size);
+
+    if (p_addr != NULL) {
+      map_page(v_addr, p_addr, flags, phys_to_virt);
+      continue;
+    }
+
+    // rollback
+    for (size_t j = 0; j < i; j++) {
+      uint8_t* v_addr = (uint8_t*)virt_addr + page_size * j;
+
+      void* p_addr = unmap_page(v_addr, phys_to_virt, virt_to_phys);
+      if (p_addr != NULL) pmm_free(p_addr);
+    }
+
+    return false;
+  }
+
+  return true;
+}
+
+void free_userspace(void *addr, size_t size) {
+  const size_t page_size = mm_state.page_size;
+  size = round_to_page_size(size, page_size);
+  const size_t no_pages = size / page_size;
+
+  for (size_t i = 0; i < no_pages; i++) {
+    uint8_t* v_addr = (uint8_t*)addr + page_size * i;
+    void* p_addr = unmap_page(v_addr, phys_to_virt, virt_to_phys);
+
+    if (p_addr != NULL) pmm_free(p_addr);
+  }
+}

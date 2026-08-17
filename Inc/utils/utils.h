@@ -15,7 +15,7 @@ void* kmemmove(void* dest, const void* src, size_t n);
 
 int kmemcmp(const void* s1, const void* s2, size_t n);
 
-char *kstrchr(const char *s, int c);
+char* kstrchr(const char* s, int c);
 
 void kstrcpy(char* dest, const char* src);
 
@@ -50,5 +50,13 @@ static inline uintptr_t get_end_addr(void* start_addr, size_t size) {
 
 // round a given address to page address (if page address is align)
 static inline void* round_to_page_boundary(void* ptr, size_t page_size) {
+  return (void*)((size_t)ptr & ~(page_size - 1));
+}
+
+static inline void* PAGE_ALIGN_UP(void* ptr, size_t page_size) {
+  return (void*)(((size_t)ptr + page_size - 1) & ~(page_size - 1));
+}
+
+static inline void* PAGE_ALIGN_DOWN(void* ptr, size_t page_size) {
   return (void*)((size_t)ptr & ~(page_size - 1));
 }
