@@ -24,11 +24,13 @@ int init_disk(void) {
 }
 
 void read_dev_disk(uint8_t* buff, size_t sector, size_t count) {
+  // log_info("Reading from disk: sector=%zu, count=%zu", sector, count);
   buff = kmalloc_phys_addr(buff);
   ahci_read_disk(entry.start_LBA + sector, count, buff);
 }
 
 void write_dev_disk(const uint8_t* buff, size_t sector, size_t count) {
+  // log_info("Writing to disk: sector=%zu, count=%zu", sector, count);
   buff = kmalloc_phys_addr(buff);
   ahci_write_disk(entry.start_LBA + sector, count, buff);
 }

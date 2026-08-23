@@ -57,6 +57,7 @@ target_compile_options(${CMAKE_PROJECT_NAME}.elf PRIVATE
     # -DAHCI_DEBUG
     # -DPS2_DEBUG
     -DSCHEDULER_DEBUG
+    -DPAGE_FAULT_DEBUG
     # -O3
 )
 
@@ -140,6 +141,7 @@ target_sources(${CMAKE_PROJECT_NAME}.elf PRIVATE
     Src/scheduler/scheduler.c
     Src/scheduler/locks.c
     Src/scheduler/elf.c
+    Src/scheduler/process.c
 
     Src/syscall/syscall.c
 )

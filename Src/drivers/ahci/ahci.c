@@ -54,6 +54,9 @@ void ahci_irq_isr_handler(void) {
   is_transfer_complete = true;
   sata_port->interrupt_status = (uint32_t)-1;  // Clear interrupt status
   lapic_eoi();
+#ifdef AHCI_DEBUG
+  LOG_DEBUG("AHCI interrupt received, transfer complete.\n");
+#endif
 }
 
 static inline size_t num_command_slots(hba_mem_t* hba_mem) {
@@ -212,14 +215,32 @@ void sata_init(hba_port_t* port, size_t num_slots) {
 
   clb_vaddr = kmalloc(HBA_CLB_SIZE);
   clb_paddr = kmalloc_phys_addr(clb_vaddr);
+
+  if (clb_vaddr == NULL || clb_paddr == NULL) {
+    LOG_ERROR("Failed to allocate memory for command list buffer.");
+    return;
+  }
+
   kmemset(clb_vaddr, 0, HBA_CLB_SIZE);
 
   fis_vaddr = kmalloc(HBA_FIS_SIZE);
   fis_paddr = kmalloc_phys_addr(fis_vaddr);
+
+  if (fis_vaddr == NULL || fis_paddr == NULL) {
+    LOG_ERROR("Failed to allocate memory for FIS buffer.");
+    return;
+  }
+
   kmemset(fis_vaddr, 0, HBA_FIS_SIZE);
 
   cmd_table_vaddr = kmalloc(256);
   cmd_table_paddr = kmalloc_phys_addr(cmd_table_vaddr);
+
+  if (cmd_table_vaddr == NULL || cmd_table_paddr == NULL) {
+    LOG_ERROR("Failed to allocate memory for command table.");
+    return;
+  }
+
   kmemset(cmd_table_vaddr, 0, 256);
 
   port->clb = (uint32_t)(uintptr_t)clb_paddr;
@@ -413,7 +434,7 @@ bool ahci_read_disk(uint64_t start_lba, uint32_t sector_count, void* buffer) {
     return false;
   }
 
-  return true;  
+  return true;
 }
 
 bool ahci_write_disk(uint64_t start_lba, uint32_t sector_count, void* buffer) {

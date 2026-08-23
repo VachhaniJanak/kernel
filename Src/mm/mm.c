@@ -14,6 +14,23 @@
 static struct mm_state_s mm_state;
 uintptr_t hhdm_offset;
 
+void* mm_get_kernel_root_table(void) { return mm_state.kernel_root_table; }
+
+size_t mm_get_page_size(void) { return mm_state.page_size; }
+
+void* mm_get_user_stack_base(void) { return (void*)mm_state.user_stack_base; }
+
+void* mm_get_user_mmap_base(void) { return (void*)mm_state.user_mmap_base; }
+
+size_t mm_get_user_stack_size(void) { return mm_state.user_stack_size; }
+
+size_t mm_get_user_mmap_size(void) { return mm_state.user_mmap_size; }
+
+void* mm_get_root_table(void) {
+  uintptr_t root_table_phys = get_page_table_addr();
+  return phys_to_virt((void*)root_table_phys);
+}
+
 void get_max_len(struct MemoryMapEntry_s* entries, size_t noEntries,
                  uint8_t type, size_t* max_usable_length,
                  uintptr_t* max_usable_base) {
@@ -34,7 +51,8 @@ bool mm_setup_kstack(void) {
   mm_state.stack_state.cursor = (void*)mm_state.kernel_stack_base;
   mm_state.stack_state.fragment_list = NULL;
 
-  const uint64_t flags = MMU_PRESENT | MMU_WRITABLE;
+  void* root_table = mm_get_root_table();
+  const mm_flags_t flags = MMU_WRITABLE;
   const size_t page_size = mm_state.page_size;
   const size_t stack_size =
       round_to_page_size(mm_state.kernel_stack_size, page_size);
@@ -56,7 +74,7 @@ bool mm_setup_kstack(void) {
     void* p_addr = pmm_alloc(page_size);
 
     if (p_addr != NULL) {
-      map_page(v_addr, p_addr, flags, phys_to_virt);
+      map_page(root_table, v_addr, p_addr, flags);
       continue;
     }
 
@@ -64,8 +82,9 @@ bool mm_setup_kstack(void) {
     for (size_t j = 0; j < i; j++) {
       uint8_t* v_addr = vir_addr + page_size * j;
 
-      void* p_addr = unmap_page(v_addr, phys_to_virt, virt_to_phys);
-      if (p_addr != NULL) pmm_free(p_addr);
+      uintptr_t p_addr;
+      mm_result_t result = unmap_page(root_table, v_addr, &p_addr);
+      if (result == MM_SUCCESS) pmm_free((void*)p_addr);
     }
 
     LOG_ERROR("[MM] Failed to allocate physical page for kernel stack.");
@@ -137,6 +156,16 @@ int mm_init(void) {
   mm_state.kernel_stack_base = KERNEL_STACK_BASE;
   mm_state.kernel_stack_size = KERNEL_STACK_SIZE;
 
+  mm_state.user_stack_base = USER_STACK_BASE;
+  mm_state.user_stack_size = USER_STACK_SIZE;
+  mm_state.user_kernel_stack_size = USER_KERNEL_STACK_SIZE;
+
+  mm_state.user_mmap_base = USER_MMAP_BASE;
+  mm_state.user_mmap_size = USER_MMAP_SIZE;
+
+  // set kernel root table
+  mm_state.kernel_root_table = (void*)get_page_table_addr();
+
   if (!init_vmm(&mm_state)) {
     LOG_ERROR("[MM] VMM initialization failed!");
     return -1;
@@ -154,59 +183,143 @@ int mm_init(void) {
 }
 
 bool mmap(void* virt_addr, void* phys_addr) {
-  uint64_t flags = MMU_PRESENT | MMU_WRITABLE;
-  return map_page(virt_addr, phys_addr, flags, phys_to_virt);
+  mm_flags_t flags = MMU_WRITABLE;
+  void* root_table = mm_get_root_table();
+  mm_result_t result = map_page(root_table, virt_addr, phys_addr, flags);
+  return result == MM_SUCCESS;
 }
 
 void ummap(void* virt_addr) {
-  unmap_page(virt_addr, phys_to_virt, virt_to_phys);
+  void* root_table = mm_get_root_table();
+
+  uintptr_t phys_addr;
+  mm_result_t result = unmap_page(root_table, virt_addr, &phys_addr);
+
+  if (result == MM_SUCCESS) {
+    pmm_free((void*)phys_addr);
+  }
 }
 
-bool map_userspace(void *virt_addr, void *phys_addr, uint64_t flags) {
-  return map_page(virt_addr, phys_addr, flags, phys_to_virt);
+mm_result_t mm_create_page_table(uintptr_t* user_root_table) {
+  void* kernel_root_table_phy = mm_get_kernel_root_table();
+  void* user_root_table_phy = pmm_alloc(PML4_SIZE);
+
+  if (user_root_table_phy == NULL) {
+    return MM_ERR_OUT_OF_MEMORY;
+  }
+
+  void* kernel_root_table_virt = phys_to_virt(kernel_root_table_phy);
+  void* user_root_table_virt = phys_to_virt(user_root_table_phy);
+
+  // Copy kernel mappings to user root table
+  kmemcpy(user_root_table_virt, kernel_root_table_virt, PML4_SIZE);
+
+  if (user_root_table == NULL) {
+    return MM_ERR_INVALID_ADDRESS;
+  }
+
+  *user_root_table = (uintptr_t)user_root_table_phy;
+
+  return MM_SUCCESS;
 }
 
-void unmap_userspace(void *virt_addr) {
-  unmap_page(virt_addr, phys_to_virt, virt_to_phys);
-}
+mm_result_t mm_allocate_user_stacks(void* root_table,
+                                    uintptr_t* user_stack_base,
+                                    uintptr_t* kernel_stack_base) {
+  if (root_table == NULL || user_stack_base == NULL ||
+      kernel_stack_base == NULL) {
+    return MM_ERR_INVALID_PAGE_TABLE;
+  }
 
-bool allocate_userspace(void *virt_addr, size_t size, uint64_t flags) {
   const size_t page_size = mm_state.page_size;
-  size = round_to_page_size(size, page_size);
-  const size_t no_pages = size / page_size;
 
-  for (size_t i = 0; i < no_pages; i++) {
-    uint8_t* v_addr = (uint8_t*)virt_addr + page_size * i;
-    void* p_addr = pmm_alloc(page_size);
+  mm_flags_t u_flags = MM_FLAG_WRITABLE | MM_FLAG_USER;
+  mm_flags_t k_flags = MM_FLAG_WRITABLE;
 
-    if (p_addr != NULL) {
-      map_page(v_addr, p_addr, flags, phys_to_virt);
-      continue;
+  void* kernel_stack_virt = (void*)mm_state.user_stack_base;
+  kernel_stack_virt = PAGE_ALIGN_UP(kernel_stack_virt, page_size);
+  *kernel_stack_base = (uintptr_t)kernel_stack_virt;
+
+  size_t kernel_stack_size = mm_state.user_kernel_stack_size;
+  kernel_stack_size = round_to_page_size(kernel_stack_size, page_size);
+
+  // boundary between user stack and kernel stack
+  uintptr_t boundary = kernel_stack_size;
+  boundary += mm_state.page_size;  // leave a guard page
+
+  void* user_stack_virt = (void*)((uintptr_t)kernel_stack_virt - boundary);
+  user_stack_virt = PAGE_ALIGN_DOWN(user_stack_virt, page_size);
+  *user_stack_base = (uintptr_t)user_stack_virt;
+
+  // stack grows downwards, so we need to allocate the last page first
+  user_stack_virt = (void*)((uintptr_t)user_stack_virt - page_size);
+
+  // Allocate user stack
+  void* user_stack_page = pmm_alloc(page_size);
+
+  if (user_stack_page == NULL) {
+    return MM_ERR_OUT_OF_MEMORY;
+  }
+
+  // Map user stack
+  mm_result_t result;
+
+  result = map_page(root_table, user_stack_virt, user_stack_page, u_flags);
+
+  if (result != MM_SUCCESS) {
+    pmm_free(user_stack_page);
+    return result;
+  }
+
+  const size_t num_pages = kernel_stack_size / page_size;
+
+  for (size_t i = 0; i < num_pages; i++) {
+    void* kernel_stack_page = pmm_alloc(kernel_stack_size);
+
+    if (kernel_stack_page != NULL) {
+      // stack grows downwards, so we need to allocate the last page first
+      kernel_stack_virt = (void*)((uintptr_t)kernel_stack_virt - page_size);
+
+      result =
+          map_page(root_table, kernel_stack_virt, kernel_stack_page, k_flags);
+
+      if (result == MM_SUCCESS) continue;
     }
 
-    // rollback
+    // rollback user stack allocation
+    uintptr_t phys_addr;
+    result = unmap_page(root_table, user_stack_virt, &phys_addr);
+
+    if (result == MM_SUCCESS) pmm_free((void*)phys_addr);
+
+    // rollback kernel stack allocation
     for (size_t j = 0; j < i; j++) {
-      uint8_t* v_addr = (uint8_t*)virt_addr + page_size * j;
+      void* kernel_stack_page =
+          (void*)((uintptr_t)kernel_stack_virt + page_size);
 
-      void* p_addr = unmap_page(v_addr, phys_to_virt, virt_to_phys);
-      if (p_addr != NULL) pmm_free(p_addr);
+      uintptr_t phys_addr;
+
+      result = unmap_page(root_table, kernel_stack_page, &phys_addr);
+
+      if (result == MM_SUCCESS) pmm_free((void*)phys_addr);
     }
 
-    return false;
+    return MM_ERR_OUT_OF_MEMORY;
   }
 
-  return true;
+  return MM_SUCCESS;
 }
 
-void free_userspace(void *addr, size_t size) {
-  const size_t page_size = mm_state.page_size;
-  size = round_to_page_size(size, page_size);
-  const size_t no_pages = size / page_size;
+uint64_t mm_get_mmu_flags(mm_flags_t flags) {
+  uint64_t mmu_flags = 0;
 
-  for (size_t i = 0; i < no_pages; i++) {
-    uint8_t* v_addr = (uint8_t*)addr + page_size * i;
-    void* p_addr = unmap_page(v_addr, phys_to_virt, virt_to_phys);
+  if (flags & MM_FLAG_READ) mmu_flags |= 0;
+  if (flags & MM_FLAG_WRITABLE) mmu_flags |= MMU_WRITABLE;
+  if (!(flags & MM_FLAG_EXE)) mmu_flags |= MMU_NO_EXECUTE;
+  if (flags & MM_FLAG_USER) mmu_flags |= MMU_USER_MEMORY;
+  if (flags & MM_FLAG_4KB) mmu_flags |= 0;
+  if (flags & MM_FLAG_2MB) mmu_flags |= MMU_HUGE_PAGE;
+  if (flags & MM_FLAG_1GB) mmu_flags |= MMU_HUGE_PAGE;
 
-    if (p_addr != NULL) pmm_free(p_addr);
-  }
+  return mmu_flags;
 }

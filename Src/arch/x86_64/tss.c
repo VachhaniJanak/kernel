@@ -2,7 +2,12 @@
 #include <arch/x86_64/tss.h>
 #include <stdint.h>
 
-static TSS_t tss __attribute__((aligned(16)));
+static TSS_t tss __attribute__((aligned(16))) = {0};
+
+uint8_t stack0[4096] __attribute__((aligned(16)));
+uint8_t stack1[4096] __attribute__((aligned(16)));
+uint8_t stack2[4096] __attribute__((aligned(16)));
+
 
 void set_tss_desc(uint64_t base, uint32_t limit) {
   // TSS descriptor is the 5th entry in GDT (index 5, selector 0x28)
@@ -32,6 +37,13 @@ static inline void set_ltr(uint16_t selector) {
 }
 
 void tss_init(void) {
+
+  // Initialize the TSS structure
+  tss.rev0 = 0;
+  tss.int_stack[0] = (uint64_t)stack0 + sizeof(stack0);
+  tss.int_stack[1] = (uint64_t)stack1 + sizeof(stack1);
+  tss.int_stack[2] = (uint64_t)stack2 + sizeof(stack2);
+
   // Set up the TSS descriptor in the GDT
   set_tss_desc((uint64_t)&tss, sizeof(TSS_t) - 1);
 

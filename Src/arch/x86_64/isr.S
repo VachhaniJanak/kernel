@@ -74,16 +74,41 @@ DEFINE_ISR_NE_X86_64(keyboard_irq_isr);
 
 DEFINE_ISR_NE_X86_64(ahci_irq_isr);
 
-
-.global timer_irq_isr                 
+.global timer_irq_isr
 .extern timer_irq_isr_handler       
 .type timer_irq_isr, @function
 timer_irq_isr:                        
   PUSH_X86_64_REGS
-  mov %rsp, %rdi
+
+  // make space for new page table pointer and new stack pointer
+  sub $16, %rsp 
+
+  // arg1 = scheduler frame
+  lea 16(%rsp), %rdi
+
+  // arg2 = context switch struct
+  mov %rsp, %rsi       
+
   call timer_irq_isr_handler
-  mov %rax, %rsp
+
+  // context_switch_t
+  mov 0(%rsp), %rax  // new cr3 value
+  mov 8(%rsp), %rdx  // new rsp value
+
+  // Switch to the new page table
+  mov %rax, %cr3
+
+  // Switch to the new stack pointer 
+  mov %rdx, %rsp
+
   POP_X86_64_REGS
   iretq
 
 
+.global switch_to_task
+.type switch_to_task, @function
+switch_to_task:
+  mov %rdi, %rsp
+  POP_X86_64_REGS
+  sti
+  iretq

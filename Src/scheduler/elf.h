@@ -1,5 +1,7 @@
 #pragma once
 
+#include <mm/mm.h>
+#include <scheduler/scheduler.h>
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -88,4 +90,4 @@ typedef enum {
 
 typedef enum { PF_X = 1, PF_W = 2, PF_R = 4 } phdr_flags_t;
 
-int load_elf_file(const char* path, void** entry_point);
+int load_elf_file(process_t* process, const char* path, void** entry_point);

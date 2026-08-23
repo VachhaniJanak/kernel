@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <vfs/vfs.h>
 
 #define PROCESS_NAME_LEN 32
 #define THREAD_NAME_LEN 32
@@ -14,6 +15,25 @@ typedef enum {
   THREAD_SLEEPING,
   THREAD_BLOCKED
 } task_status_t;
+
+typedef enum { VMA_READ = 0x01, VMA_WRITE = 0x02, VMA_EXEC = 0x04 } vma_flags_t;
+
+typedef enum {
+  VMA_ANONYMOUS = 0x10,    // No file backing (Stack, Heap, BSS gap)
+  VMA_FILE_BACKED = 0x20,  // Needs to be read from a file (ELF code/data)
+  VMA_SHARED = 0x40,       // Shared memory
+  VMA_PRIVATE = 0x80       // Private memory
+} vma_type_t;
+
+typedef struct vma_s {
+  uint64_t vm_start;
+  uint64_t vm_end;
+  uint32_t flags;
+  vfs_t* file;
+  uint64_t file_offset;
+  uint64_t file_size;
+  struct vma_s* next;
+} vma_t;
 
 typedef struct thread_s {
   size_t tid;
@@ -32,6 +52,7 @@ typedef struct process_s {
   void* page_table;
   struct thread_s* thread_list_start;
   struct thread_s* thread_list_end;
+  struct vma_s* vma_head;
   struct process_s* next;
 } process_t;
 
@@ -54,6 +75,11 @@ typedef struct {
   uint64_t kernel_rsp;  // Offset 0x08
   uint64_t cpu_id;      // Offset 0x10
 } cpu_local_data_t;
+
+typedef struct {
+  uint64_t rpt;
+  uint64_t stack;
+} context_switch_t;
 
 void init_scheduler(void);
 
@@ -81,3 +107,9 @@ size_t scheduler_get_total_processes(void);
 size_t scheduler_get_total_threads(void);
 
 void scheduler_yield(void);
+
+void terminate_current_process(void);
+
+process_t* get_process_by_pid(size_t pid);
+
+thread_t* get_thread(process_t* process, size_t tid);

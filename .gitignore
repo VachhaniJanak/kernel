@@ -5,6 +5,7 @@
 
 # Compiled object files
 build
+cmake-build-debug
 
 #others
 test

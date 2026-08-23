@@ -95,6 +95,7 @@ void kmain(void) {
   }
 
   kprintf("Initialization complete!\n");
+  kprintf("Kernel stack base: 0x%lx\n", get_stack_top());
 
   init_scheduler();
 

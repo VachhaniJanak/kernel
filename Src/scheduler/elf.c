@@ -3,12 +3,15 @@
 #include <arch/x86_64/mmu.h>
 #include <mm/mm.h>
 #include <mm/vmm/kheap.h>
+#include <scheduler/scheduler.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <utils/log.h>
 #include <utils/utils.h>
 #include <vfs/vfs.h>
+
+#include "process.h"
 
 const uint8_t MAGIC_ELF_BYTES[4] = {0x7F, 'E', 'L', 'F'};
 
@@ -19,7 +22,7 @@ static bool is_valid_elf_hdr(const elf64_ehdr_t* ehdr) {
     }
   }
 
-#ifdef __x86_64__
+  // #ifdef __x86_64__
   if (ehdr->e_ident[EI_CLASS] != ELFCLASS64) {
     return false;
   }
@@ -31,16 +34,12 @@ static bool is_valid_elf_hdr(const elf64_ehdr_t* ehdr) {
   if (ehdr->e_machine != EM_X86_64) {
     return false;
   }
-#endif
+  // #endif
 
   return true;
 }
 
-static bool is_valid_phdr(const elf64_phdr_t* phdr) {
-  if (phdr->p_type != PT_LOAD) {
-    return false;
-  }
-
+static inline bool is_valid_elf_phdr(const elf64_phdr_t* phdr) {
   if (phdr->p_memsz < phdr->p_filesz) {
     return false;
   }
@@ -52,138 +51,155 @@ static bool is_valid_phdr(const elf64_phdr_t* phdr) {
   return true;
 }
 
-static uint64_t gets_flag(Elf64_Word p_flags) {
-  uint64_t flags = 0;
+static inline vma_flags_t get_elf_flag(Elf64_Word p_flags) {
+  vma_flags_t flags = 0;
 
   if (p_flags & PF_R) {
-    flags |= MMU_PRESENT;  // Readable
+    flags |= VMA_READ;  // Readable
   }
 
   if (p_flags & PF_W) {
-    flags |= MMU_WRITABLE;  // Writable
+    flags |= VMA_WRITE;  // Writable
   }
 
-  if (!(p_flags & PF_X)) {
-    flags |= MMU_NX;  // Not Executable
+  if (p_flags & PF_X) {
+    flags |= VMA_EXEC;  // Executable
   }
 
   return flags;
 }
 
-int load_elf_file(const char* path, void** entry_point) {
-  vfs_t file;
-
-  int ret = vfs_open(&file, path, FA_READ);
+int load_elf_file(process_t* process, const char* path, void** entry_point) {
+  vfs_t* file = kmalloc(sizeof(vfs_t));
+  int ret = vfs_open(file, path, FA_READ);
 
   if (ret < 0) {
+#ifdef ELF_LOADER_DEBUG
     log_error("Failed to open ELF file\n");
+#endif
+    kfree(file);
     return 1;
   }
 
-  if (vfs_get_file_size(&file) < sizeof(elf64_ehdr_t)) {
+  if (vfs_get_file_size(file) < sizeof(elf64_ehdr_t)) {
+#ifdef ELF_LOADER_DEBUG
     log_error("File size is too small to be a valid ELF file\n");
+#endif
+    kfree(file);
     return 1;
   }
 
-  const size_t max_buffer_size = 4096;
-  uint8_t* buffer = (uint8_t*)kmalloc(max_buffer_size);
-  elf64_ehdr_t ehdr;
+  elf64_ehdr_t* ehdr = (elf64_ehdr_t*)kmalloc(sizeof(elf64_ehdr_t));
+  ret = vfs_read(file, (void*)ehdr, sizeof(elf64_ehdr_t));
 
-  vfs_read(&file, buffer, sizeof(elf64_ehdr_t));
-  kmemcpy(&ehdr, buffer, sizeof(elf64_ehdr_t));
+  if (ret < 0) {
+#ifdef ELF_LOADER_DEBUG
+    log_error("Failed to read ELF header\n");
+#endif
+    vfs_close(file);
+    kfree(ehdr);
+    kfree(file);
+    return 1;
+  }
 
-  if (!is_valid_elf_hdr(&ehdr)) {
+  if (!is_valid_elf_hdr(ehdr)) {
+#ifdef ELF_LOADER_DEBUG
     log_error("Invalid ELF file\n");
-    vfs_close(&file);
-    kfree(buffer);
+#endif
+    vfs_close(file);
+    kfree(ehdr);
+    kfree(file);
     return 1;
   }
 
   if (entry_point != NULL) {
-    *entry_point = (void*)ehdr.e_entry;
+    *entry_point = (void*)ehdr->e_entry;
   }
 
-#ifdef SCHEDULER_DEBUG
+#ifdef ELF_LOADER_DEBUG
   log_print("ELF Header:\n");
-  log_print("  Entry point: 0x%lx\n", ehdr.e_entry);
-  log_print("  Program header offset: %lu\n", ehdr.e_phoff);
-  log_print("  Size of program header: %lu\n", ehdr.e_phentsize);
-  log_print("  Number of program headers: %u\n", ehdr.e_phnum);
+  log_print("  Entry point: 0x%lx\n", ehdr->e_entry);
+  log_print("  Program header offset: %lu\n", ehdr->e_phoff);
+  log_print("  Size of program header: %lu\n", ehdr->e_phentsize);
+  log_print("  Number of program headers: %u\n", ehdr->e_phnum);
+  log_print("\n");
 #endif
 
-  elf64_phdr_t phdr;
+  elf64_phdr_t* phdr = (elf64_phdr_t*)kmalloc(sizeof(elf64_phdr_t));
 
-  for (size_t i = 0; i < ehdr.e_phnum; ++i) {
-    vfs_seek(&file, ehdr.e_phoff + i * sizeof(elf64_phdr_t));
-    vfs_read(&file, buffer, sizeof(elf64_phdr_t));
-    kmemcpy(&phdr, buffer, sizeof(elf64_phdr_t));
+  for (size_t i = 0; i < ehdr->e_phnum; ++i) {
+    vfs_seek(file, ehdr->e_phoff + i * sizeof(elf64_phdr_t));
+    ret = vfs_read(file, (void*)phdr, sizeof(elf64_phdr_t));
 
-    if (!is_valid_phdr(&phdr)) {
-      continue;
-    }
-
-#ifdef SCHEDULER_DEBUG
-    log_print("Program Header [%d]:\n", i);
-    log_print("  Type: %u\n", phdr.p_type);
-    log_print("  Flags: %u\n", phdr.p_flags);
-    log_print("  Offset: %lu\n", phdr.p_offset);
-    log_print("  Virtual Address: 0x%lx\n", phdr.p_vaddr);
-    log_print("  Physical Address: 0x%lx\n", phdr.p_paddr);
-    log_print("  File Size: %lu\n", phdr.p_filesz);
-    log_print("  Memory Size: %lu\n", phdr.p_memsz);
-    log_print("  Alignment: %lu\n", phdr.p_align);
+    if (ret < 0) {
+#ifdef ELF_LOADER_DEBUG
+      log_error("Failed to read program header\n");
 #endif
-
-    // allocate memory
-    uint64_t flags = gets_flag(phdr.p_flags);
-    size_t vaddr_end = phdr.p_vaddr + phdr.p_memsz;
-
-    void* start_addr = PAGE_ALIGN_DOWN((void*)phdr.p_vaddr, 0x1000);
-    void* end_addr = PAGE_ALIGN_UP((void*)vaddr_end, 0x1000);
-
-    bool res = allocate_userspace(start_addr, phdr.p_memsz,
-                                  MMU_PRESENT | MMU_WRITABLE | MMU_USER_MEMORY);
-
-    if (!res) {
-      log_error("Failed to allocate userspace memory for segment %d\n", i);
-      vfs_close(&file);
-      kfree(buffer);
+      vfs_close(file);
+      kfree(phdr);
+      kfree(ehdr);
+      kfree(file);
       return 1;
     }
 
-    size_t offset = phdr.p_offset;
-    size_t bytes_read = 0;
+    if (!(is_valid_elf_phdr(phdr) && phdr->p_type == PT_LOAD)) {
+      continue;
+    }
+#ifdef ELF_LOADER_DEBUG
+    log_print("Program Header [%d]:\n", i);
+    log_print("  Type: %u\n", phdr->p_type);
+    log_print("  Flags: %u\n", phdr->p_flags);
+    log_print("  Offset: %lu\n", phdr->p_offset);
+    log_print("  Virtual Address: 0x%lx\n", phdr->p_vaddr);
+    log_print("  Physical Address: 0x%lx\n", phdr->p_paddr);
+    log_print("  File Size: %lu\n", phdr->p_filesz);
+    log_print("  Memory Size: %lu\n", phdr->p_memsz);
+    log_print("  Alignment: %lu\n", phdr->p_align);
+    log_print("\n");
+#endif
+    vma_flags_t flags = get_elf_flag(phdr->p_flags);
 
-    while (bytes_read < phdr.p_filesz) {
-      size_t read_size = max_buffer_size;
+    if (phdr->p_filesz > 0) {
+      // Mark the VMA as file-backed since it needs to be read from a file
+      flags |= VMA_FILE_BACKED;
 
-      if (read_size > phdr.p_filesz - bytes_read) {
-        read_size = phdr.p_filesz - bytes_read;
-      }
+      vma_t vma = {.vm_start = phdr->p_vaddr,
+                   .vm_end = phdr->p_vaddr + phdr->p_filesz,
+                   .flags = flags,
+                   .file = file,
+                   .file_offset = phdr->p_offset,
+                   .file_size = phdr->p_filesz,
+                   .next = NULL};
 
-      vfs_seek(&file, offset);
-      vfs_read(&file, buffer, read_size);
-
-      void* src = (void*)(phdr.p_vaddr + bytes_read);
-      kmemcpy(src, buffer, read_size);
-
-      bytes_read += read_size;
-      offset += read_size;
-
-      log_info("Copied %zu bytes to virtual address 0x%lx", read_size,
-               (uintptr_t)src);
+      vma_add(process, &vma);
     }
 
-    if (!(phdr.p_memsz > phdr.p_filesz)) {
+    if (!(phdr->p_memsz > phdr->p_filesz)) {
+#ifdef ELF_LOADER_DEBUG
+      log_print("\n");
+      log_print("No zeroing required for this segment.\n");
+#endif
       continue;
     }
 
-    size_t bss_size = phdr.p_memsz - phdr.p_filesz;
-    void* bss_start = (void*)(phdr.p_vaddr + phdr.p_filesz);
-    kmemset(bss_start, 0, bss_size);
+    // Clear the file-backed flag for the zeroed region
+    flags &= ~VMA_FILE_BACKED;
+
+    // Mark as anonymous since it doesn't have a file backing
+    flags |= VMA_ANONYMOUS;
+
+    vma_t vma = {.vm_start = phdr->p_vaddr + phdr->p_filesz,
+                 .vm_end = phdr->p_vaddr + phdr->p_memsz,
+                 .flags = flags,
+                 .file = NULL,
+                 .file_offset = 0,
+                 .file_size = 0,
+                 .next = NULL};
+
+    vma_add(process, &vma);
   }
 
-  kfree(buffer);
-  vfs_close(&file);
+  kfree(ehdr);
+  kfree(phdr);
   return 0;
 }

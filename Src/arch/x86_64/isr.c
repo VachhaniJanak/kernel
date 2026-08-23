@@ -53,14 +53,17 @@ WEAK void invalid_opcode_isr_handler(struct interrupt_ecframe_s* frame) {
 
 WEAK void double_fault_isr_handler(struct interrupt_ecframe_s* frame) {
   UNUSED(frame);
-  LOG_ERROR("Double Fault\n");
+  log_error("Double Fault:");
+  log_print("  RIP: 0x%lx\n", frame->rip);
+  log_print("  RSP: 0x%lx\n", frame->rsp);
+  log_print("  RFLAGS: 0x%lx\n", frame->rflags);
   while (1);
 }
 
-WEAK uint64_t timer_irq_isr_handler(struct scheduler_frame_s* frame) {
-  UNUSED(frame);
-  lapic_eoi();
-}
+// WEAK uint64_t timer_irq_isr_handler(struct scheduler_frame_s* frame) {
+//   UNUSED(frame);
+//   lapic_eoi();
+// }
 
 WEAK void keyboard_irq_isr_handler(void) {
   volatile int scancode = inb(0x60);

@@ -5,32 +5,38 @@
 #include <stdint.h>
 
 struct sgl_node_s {
-  void *addr;
+  void* addr;
   size_t size;
-  struct sgl_node_s *next;
+  struct sgl_node_s* next;
 };
 
-bool init_vmm(struct mm_state_s *mm_state);
+bool init_vmm(struct mm_state_s* mm_state);
 
-bool map_page(void *virt_addr, void *phys_addr, uint64_t flags,
-              void *(*phys_to_virt)(void *));
+mm_result_t map_page(void* root_table, void* virt_addr, void* phys_addr,
+                     mm_flags_t mm_flags);
 
-void *unmap_page(void *virt_addr, void *(*phys_to_virt)(void *),
-                 void *(*virt_to_phys)(void *));
+mm_result_t unmap_page(void* root_table, void* virt_addr, uintptr_t* phys_addr);
 
-void *map_phys_addr(void *virt_addr, void *(*phys_to_virt)(void *));
+mm_result_t get_mapping(void* root_table, void* virt_addr,
+                        uintptr_t* phys_addr);
 
-void *pre_obj_alloc(size_t size);
+mm_result_t change_page_flags(void* root_table, void* virt_addr,
+                              mm_flags_t new_flags);
 
-void pre_obj_free(void *ptr);
+mm_result_t remap_page(void* root_table, void* virt_addr, void* new_phys_addr,
+                       uintptr_t* old_phys_addr, mm_flags_t mm_flags);
 
-void *valloc_page(void);
+void* pre_obj_alloc(size_t size);
 
-void vfree_page(void *addr);
+void pre_obj_free(void* ptr);
 
-void *vmalloc(size_t size, uint64_t flags, bool phys_continuous);
+void* valloc_page(void);
 
-void vfree(void *addr);
+void vfree_page(void* addr);
+
+void* vmalloc(size_t size, mm_flags_t flags, bool phys_continuous);
+
+void vfree(void* addr);
 
 void debug_print_vmm_tree(void);
 

@@ -12,6 +12,7 @@
 #include <mm/vmm/vmm.h>
 #include <platform/attributes.h>
 #include <scheduler/locks.h>
+#include "process.h"
 #include <scheduler/scheduler.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -149,7 +150,7 @@ static bool remove_process(size_t pid) {
   return false;
 }
 
-static process_t* get_process_by_pid(size_t pid) {
+process_t* get_process_by_pid(size_t pid) {
   if (scheduler_state.process_list_end != NULL &&
       scheduler_state.process_list_end->pid == pid) {
     return scheduler_state.process_list_end;
@@ -313,7 +314,7 @@ bool init_kernel_thread(const char* name, thread_t* thread, size_t stack_size,
   thread->status = THREAD_READY;
 
   // Allocate stack for the thread
-  uint64_t flags = MMU_PRESENT | MMU_WRITABLE;
+  mm_flags_t flags = MM_FLAG_WRITABLE;
   thread->kernel_stack = vmalloc(stack_size, flags, false);
 
   if (thread->kernel_stack == NULL) {
@@ -429,7 +430,8 @@ static inline bool get_next_thread(process_t** nprocess, thread_t** nthread,
   return true;
 }
 
-static inline uint64_t scheduler(struct scheduler_frame_s* frame) {
+static inline void scheduler(struct scheduler_frame_s* frame,
+                             context_switch_t* context_switch) {
   unsigned long flags;
   SPIN_LOCK_ACQUIRE(&scheduler_state_lock, flags);
 
@@ -438,7 +440,9 @@ static inline uint64_t scheduler(struct scheduler_frame_s* frame) {
 
   if (current_process == NULL || scheduler_state.total_threads == 0) {
     SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
-    return (uint64_t)frame;
+    context_switch->rpt = (uint64_t)get_page_table_addr();
+    context_switch->stack = (uint64_t)frame;
+    return;
   }
 
   process_t* next_process = NULL;
@@ -453,7 +457,9 @@ static inline uint64_t scheduler(struct scheduler_frame_s* frame) {
     if (!get_next_thread(&next_process, &next_thread, temp_process,
                          temp_thread)) {
       SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
-      return (uint64_t)frame;
+      context_switch->rpt = (uint64_t)get_page_table_addr();
+      context_switch->stack = (uint64_t)frame;
+      return;
     }
 
     if (next_thread->status == THREAD_READY) {
@@ -492,25 +498,35 @@ static inline uint64_t scheduler(struct scheduler_frame_s* frame) {
   scheduler_state.current_process = next_process;
   scheduler_state.current_thread = next_thread;
 
-  // if (current_thread->tid != next_thread->tid) {
-  //   log_print("[SCHEDULER] thread %zu, thread %zu\n", current_thread->tid,
-  //             next_thread->tid);
-  // }
+  bsp_local_data.kernel_rsp = (uint64_t)next_thread->kernel_stack;
+  set_tss_ring_x_stack(next_thread->kernel_stack, 0);
 
   SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
 
-  bsp_local_data.kernel_rsp = (uint64_t)next_thread->kernel_stack;
+  // if (current_thread->tid != next_thread->tid) {
+  //   log_print("[SCHEDULER] Frame:\n");
+  //   log_print("{thread %zu -> thread %zu}\n", current_thread->tid,
+  //             next_thread->tid);
 
-  set_tss_ring_x_stack(next_thread->kernel_stack, 0);
-  set_page_table_addr((uint64_t)next_process->page_table);
-  return (uint64_t)next_thread->current_stack_ptr;
+  //   log_print("  Current thread: %zu\n", current_thread->tid);
+  //   log_print("    RIP: 0x%lx\n", frame->rip);
+  //   log_print("    RSP: 0x%lx\n", frame->rsp);
+  //   log_print("    RFLAGS: 0x%lx\n", frame->rflags);
+  //   log_print("    CS: 0x%lx\n", frame->cs);
+  //   log_print("    SS: 0x%lx\n", frame->ss);
+  //   log_print("    Current RSP: 0x%lx\n", (uint64_t)frame);
+  //   log_newline();
+  // }
+  context_switch->rpt = (uint64_t)next_process->page_table;
+  context_switch->stack = (uint64_t)next_thread->current_stack_ptr;
 }
 
-uint64_t timer_irq_isr_handler(struct scheduler_frame_s* frame) {
+uint64_t timer_irq_isr_handler(struct scheduler_frame_s* frame,
+                               context_switch_t* context_switch) {
   system_tick += 10;
-  uint64_t addr = scheduler(frame);
+  scheduler(frame, context_switch);
   lapic_eoi();
-  return addr;
+  return 0;
 }
 
 static void idle(void* arg) {
@@ -544,6 +560,8 @@ void test_thread2(void* arg) {
 }
 
 void foo(void);
+
+void switch_to_task(uintptr_t stack_ptr);
 
 void init_scheduler(void) {
   syscall_init(&bsp_local_data);
@@ -590,14 +608,25 @@ void init_scheduler(void) {
 
   SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
 
+  // // create the idle thread
+  // thread_t* idle_thread;
+  // create_kthread("idle", &idle_thread, mm_get_page_size(), idle, NULL);
+
+  // scheduler_state.idle_thread = idle_thread;
+  // scheduler_state.current_thread = scheduler_state.idle_thread;
+
   // Create test threads
   thread_t* thread1;
-  create_kthread("test_thread1", &thread1, 1024, test_thread1, NULL);
+  create_kthread("test_thread1", &thread1, mm_get_page_size(), test_thread1,
+                 NULL);
 
   thread_t* thread2;
-  create_kthread("test_thread2", &thread2, 1024, test_thread2, NULL);
+  create_kthread("test_thread2", &thread2, mm_get_page_size(), test_thread2,
+                 NULL);
 
   foo();
+
+  // switch_to_task((uintptr_t)idle_thread->current_stack_ptr);
 
 #ifdef SCHEDULER_DEBUG
   log_info("Scheduler initialized");
@@ -613,12 +642,23 @@ void init_user_process(process_t* process, char* name) {
   }
 
   kstrcpy(process->name, name);
-  process->page_table = (void*)get_page_table_addr();
+
+  uintptr_t addr;
+  mm_result_t result = mm_create_page_table(&addr);
+
+  if (result != MM_SUCCESS) {
+#ifdef SCHEDULER_DEBUG
+    log_error("Failed to create page table for user process");
+#endif
+    return;
+  }
+
+  process->page_table = (void*)addr;
   process->thread_list_start = NULL;
   process->thread_list_end = NULL;
 }
 
-bool init_user_thread(const char* name, thread_t* thread, size_t stack_size,
+bool init_user_thread(process_t* process, const char* name, thread_t* thread,
                       void (*entry_point)(void*), void* arg) {
   if (thread == NULL) {
     return false;
@@ -627,34 +667,18 @@ bool init_user_thread(const char* name, thread_t* thread, size_t stack_size,
   kstrcpy(thread->name, name);
   thread->status = THREAD_READY;
 
+  void* root_table = phys_to_virt(process->page_table);
+
   // Allocate stack for the thread
-  uint64_t flags = MMU_PRESENT | MMU_WRITABLE;
+  mm_result_t result =
+      mm_allocate_user_stacks(root_table, (uintptr_t*)&thread->user_stack,
+                              (uintptr_t*)&thread->kernel_stack);
 
-  // base address for user thread
-  void* kernel_stack_base = (void*)KERNEL_STACK_BASE;
-  size_t lower_addr = 4 * (1 << 20);
-  lower_addr += (1 << 20) * 4;
-
-  thread->kernel_stack = (void*)lower_addr;
-
-  if (!allocate_userspace((void*)lower_addr, stack_size, flags)) {
+  if (result != MM_SUCCESS) {
+    log_error("Failed to allocate user stacks for thread '%s', Error: %d", name,
+              result);
     return false;
   }
-
-  flags |= MMU_USER_MEMORY;
-  lower_addr += (1 << 20) * 4;
-  thread->user_stack = (void*)lower_addr;
-
-  if (!allocate_userspace((void*)lower_addr, stack_size, flags)) {
-    return false;
-  }
-
-  // Stack grows downwards
-  size_t stack_top = (size_t)thread->kernel_stack + stack_size;
-  thread->kernel_stack = (void*)stack_top;
-
-  stack_top = (size_t)thread->user_stack + stack_size;
-  thread->user_stack = (void*)stack_top;
 
   log_info("User thread '%s' kernel stack: 0x%lx, user stack: 0x%lx", name,
            (uintptr_t)thread->kernel_stack, (uintptr_t)thread->user_stack);
@@ -662,10 +686,20 @@ bool init_user_thread(const char* name, thread_t* thread, size_t stack_size,
   // initialize the stack pointer for the thread
   size_t frame_size = sizeof(struct scheduler_frame_s);
   thread->current_stack_ptr =
-      (void*)((size_t)thread->kernel_stack - frame_size);
+      (void*)((uintptr_t)thread->kernel_stack - frame_size);
 
   // Set up the initial stack frame for the thread
-  struct scheduler_frame_s* frame = thread->current_stack_ptr;
+
+  uintptr_t phys_addr;
+  result = get_mapping(root_table, thread->current_stack_ptr, &phys_addr);
+
+  if (result != MM_SUCCESS) {
+    log_error("Failed to get physical address for thread '%s' stack, Error: %d",
+              name, result);
+    return false;
+  }
+
+  struct scheduler_frame_s* frame = phys_to_virt((void*)phys_addr);
 
   // frame->regs.rdi = (uint64_t)entry_point;
   // frame->regs.rsi = (uint64_t)arg;
@@ -681,8 +715,7 @@ bool init_user_thread(const char* name, thread_t* thread, size_t stack_size,
   return true;
 }
 
-int load_user_process(process_t** process, size_t stack_size,
-                      void (*main_func)(void*), void* arg) {
+int load_user_process(process_t** process, const char* elf_path) {
   unsigned long flags;
   SPIN_LOCK_ACQUIRE(&scheduler_state_lock, flags);
 
@@ -694,15 +727,38 @@ int load_user_process(process_t** process, size_t stack_size,
     return -1;
   }
 
+  void* entry_point;
+  int res = load_elf_file(user_process, elf_path, &entry_point);
+
+  if (res != 0) {
+    remove_process(user_process->pid);
+    log_error("Failed to load ELF file: %d", res);
+    return -1;
+  }
+
   init_user_process(user_process, "user-demo");
 
   thread_t* main_thread = add_thread(user_process);
 
-  if (!init_user_thread("main", main_thread, stack_size, main_func, arg)) {
+  void (*user_main)(void*) = (void (*)(void*))entry_point;
+
+  if (!init_user_thread(user_process, "main", main_thread, user_main, NULL)) {
     log_error("Failed to create main thread");
     SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
     return -1;
   }
+
+  // Add a VMA for the user stack
+  vma_t vma = {
+      .vm_start = (uintptr_t)main_thread->user_stack - mm_get_user_stack_size(),
+      .vm_end = (uintptr_t)main_thread->user_stack,
+      .flags = VMA_ANONYMOUS | VMA_WRITE | VMA_READ | VMA_EXEC,
+      .file = NULL,
+      .file_offset = 0,
+      .file_size = 0,
+  };
+
+  vma_add(user_process, &vma);
 
   SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
 
@@ -718,12 +774,7 @@ int load_user_process(process_t** process, size_t stack_size,
 
 void foo(void) {
   vfs_list_directory("/userprograms/");
-
-  void* entry_point;
-  load_elf_file("/userprograms/demo.elf", &entry_point);
-
-  void (*user_main)(void*) = (void (*)(void*))entry_point;
-  int ret = load_user_process(NULL, PAGE_SIZE, user_main, NULL);
+  int ret = load_user_process(NULL, "/userprograms/demo.elf");
 
   if (ret != 0) {
     log_error("Failed to load user process: %d", ret);

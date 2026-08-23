@@ -57,6 +57,6 @@ void invalid_tss_isr_handler(struct interrupt_ecframe_s* frame);
 void invalid_opcode_isr_handler(struct interrupt_ecframe_s* frame);
 void double_fault_isr_handler(struct interrupt_ecframe_s* frame);
 void gp_fault_isr_handler(struct interrupt_ecframe_s* frame);
-uint64_t timer_irq_isr_handler(struct scheduler_frame_s* frame);
+// uint64_t timer_irq_isr_handler(struct scheduler_frame_s* frame);
 void keyboard_irq_isr_handler(void);
 void ahci_irq_isr_handler(void);
