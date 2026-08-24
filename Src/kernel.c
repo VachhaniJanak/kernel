@@ -17,7 +17,7 @@
 #include <mm/mm.h>
 #include <mm/vmm/kheap.h>
 #include <platform/attributes.h>
-#include <scheduler/scheduler.h>
+#include <process/scheduler.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -26,7 +26,8 @@
 #include <vfs/vfs.h>
 
 static void loop(void) {
-  while (true){}
+  while (true) {
+  }
 }
 
 void kmain(void) {
@@ -95,11 +96,10 @@ void kmain(void) {
   }
 
   kprintf("Initialization complete!\n");
-  kprintf("Kernel stack base: 0x%lx\n", get_stack_top());
 
-  init_scheduler();
+  scheduler_init();
 
-  while(true) {
+  while (true) {
     log_error("scheduler is exited");
     sleep_millis(1000);
   }

@@ -1,6 +1,6 @@
 #include <arch/x86_64/io.h>
 #include <platform/attributes.h>
-#include <scheduler/locks.h>
+#include <process/locks.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <utils/printf.h>

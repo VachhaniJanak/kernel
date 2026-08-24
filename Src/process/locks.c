@@ -1,6 +1,6 @@
 #include <mm/vmm/kheap.h>
-#include <scheduler/locks.h>
-#include <scheduler/scheduler.h>
+#include <process/locks.h>
+#include <process/scheduler.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>

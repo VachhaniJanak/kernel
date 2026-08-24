@@ -81,14 +81,7 @@ typedef struct {
   uint64_t stack;
 } context_switch_t;
 
-void init_scheduler(void);
-
-int create_kthread(const char* name, thread_t** thread, size_t stack_size,
-                   void (*entry_point)(void* arg), void* arg);
-
-int join_kthread(thread_t* thread);
-
-void kthread_sleep(size_t milliseconds);
+void scheduler_init(void);
 
 process_t* scheduler_get_current_process(void);
 
@@ -108,8 +101,14 @@ size_t scheduler_get_total_threads(void);
 
 void scheduler_yield(void);
 
-void terminate_current_process(void);
+process_t* scheduler_add_process(void);
 
-process_t* get_process_by_pid(size_t pid);
+thread_t* scheduler_add_thread(process_t* process);
 
-thread_t* get_thread(process_t* process, size_t tid);
+bool scheduler_remove_thread(process_t* process, size_t tid);
+
+thread_t* scheduler_get_thread(process_t* process, size_t tid);
+
+bool scheduler_remove_process(size_t pid);
+
+size_t get_system_time(void);

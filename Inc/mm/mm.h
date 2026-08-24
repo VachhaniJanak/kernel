@@ -72,6 +72,7 @@ struct mm_state_s {
 
   uintptr_t kernel_stack_base;
   uintptr_t kernel_stack_size;
+  size_t kernel_thread_stack_size;
 
   uintptr_t user_stack_base;
   size_t user_stack_size;
@@ -111,6 +112,8 @@ uint64_t mm_get_mmu_flags(mm_flags_t flags);
 
 void* mm_get_kernel_root_table(void);
 
+size_t mm_get_kernel_thread_stack_size(void);
+
 size_t mm_get_page_size(void);
 
 void* mm_get_user_stack_base(void);
@@ -126,3 +129,4 @@ mm_result_t mm_create_page_table(uintptr_t* user_root_table);
 mm_result_t mm_allocate_user_stacks(void* root_table,
                                     uintptr_t* user_stack_base,
                                     uintptr_t* kernel_stack_base);
+

@@ -3,15 +3,14 @@
 #include <arch/x86_64/mmu.h>
 #include <mm/mm.h>
 #include <mm/vmm/kheap.h>
-#include <scheduler/scheduler.h>
+#include <process/process.h>
+#include <process/scheduler.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <utils/log.h>
 #include <utils/utils.h>
 #include <vfs/vfs.h>
-
-#include "process.h"
 
 const uint8_t MAGIC_ELF_BYTES[4] = {0x7F, 'E', 'L', 'F'};
 

@@ -12,6 +12,8 @@
 #define KERNEL_STACK_SIZE (32 * (1UL << 10))      // 32 KiB
 #define KERNEL_MAX_STACK_SIZE (64 * (1UL << 30))  // 64 GiB max stack size
 
+#define KERNEL_THREAD_STACK_SIZE (8 * (1UL << 10))  // 8 KiB
+
 #define KERNEL_VIRTUAL_BASE 0xffffffff80000000ULL
 
 // user space

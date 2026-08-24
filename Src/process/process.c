@@ -1,5 +1,3 @@
-#include "process.h"
-
 #include <arch/x86_64/interrupt.h>
 #include <arch/x86_64/isr.h>
 #include <arch/x86_64/mmu.h>
@@ -9,13 +7,173 @@
 #include <mm/pmm/pmm.h>
 #include <mm/vmm/kheap.h>
 #include <mm/vmm/vmm.h>
-#include <scheduler/scheduler.h>
+#include <process/locks.h>
+#include <process/process.h>
+#include <process/scheduler.h>
+#include <process/thread.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <utils/log.h>
 #include <utils/utils.h>
 #include <vfs/vfs.h>
+
+#include "elf.h"
+
+// #define PROCESS_DEBUG
+// #define PAGE_FAULT_DEBUG
+
+extern spinlock_t scheduler_state_lock;
+
+void kprocess_init(process_t* process) {
+  kstrcpy(process->name, "kernel");
+
+  process->page_table = (void*)mm_get_kernel_root_table();
+  process->thread_list_start = NULL;
+  process->thread_list_end = NULL;
+  process->vma_head = NULL;
+}
+
+static bool user_process_init(process_t* process, char* name) {
+  if (process == NULL) {
+    return false;
+  }
+
+  kstrcpy(process->name, name);
+
+  uintptr_t addr;
+  mm_result_t result = mm_create_page_table(&addr);
+
+  if (result != MM_SUCCESS) {
+#ifdef PROCESS_DEBUG
+    log_error("Failed to create page table for user process");
+#endif
+    return false;
+  }
+
+  process->page_table = (void*)addr;
+  process->thread_list_start = NULL;
+  process->thread_list_end = NULL;
+  process->vma_head = NULL;
+  return true;
+}
+
+int load_user_process(process_t** process, const char* elf_path, void* arg) {
+  void* entry_point;
+  process_t temp_process = {0};
+
+#ifdef PROCESS_DEBUG
+  log_print("Loading user process from ELF file: %s\n", elf_path);
+#endif
+
+  int result = load_elf_file(&temp_process, elf_path, &entry_point);
+
+  if (result != 0) {
+#ifdef PROCESS_DEBUG
+    log_error("Failed to load ELF file: %d", result);
+#endif
+    return -1;
+  }
+
+#ifdef PROCESS_DEBUG
+  log_print("ELF file loaded successfully. Entry point: 0x%lx\n",
+            (uintptr_t)entry_point);
+#endif
+
+  unsigned long flags;
+  SPIN_LOCK_ACQUIRE(&scheduler_state_lock, flags);
+
+  process_t* new_process = scheduler_add_process();
+
+  if (new_process == NULL) {
+    SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
+    vma_free(&temp_process);
+#ifdef PROCESS_DEBUG
+    log_error("Failed to create user process");
+#endif
+    return -1;
+  }
+
+  if (!user_process_init(new_process, "user-demo")) {
+    scheduler_remove_process(new_process->pid);
+    SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
+    vma_free(&temp_process);
+#ifdef PROCESS_DEBUG
+    log_error("Failed to initialize user process");
+#endif
+    return -1;
+  }
+
+#ifdef PROCESS_DEBUG
+  log_print("User Process Initialized: %s, (PID: %lu)\n", new_process->name,
+            new_process->pid);
+#endif
+
+  // Copy the VMA list from the temporary process to the new process
+  new_process->vma_head = temp_process.vma_head;
+
+  void (*user_main)(void*) = (void (*)(void*))entry_point;
+  thread_t* main_thread = scheduler_add_thread(new_process);
+
+  if (main_thread == NULL) {
+    scheduler_remove_process(new_process->pid);
+    SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
+    vma_free(new_process);
+#ifdef PROCESS_DEBUG
+    log_error("Failed to create main thread for user process");
+#endif
+    return -1;
+  }
+
+  if (!user_thread_init(new_process, "main", main_thread, user_main, arg)) {
+    scheduler_remove_thread(new_process, main_thread->tid);
+    scheduler_remove_process(new_process->pid);
+    SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
+    vma_free(new_process);
+#ifdef PROCESS_DEBUG
+    log_error("Failed to create and initialize main thread");
+#endif
+    return -1;
+  }
+
+  uintptr_t s_stack =
+      (uintptr_t)main_thread->user_stack - mm_get_user_stack_size();
+
+  uintptr_t e_stack = (uintptr_t)main_thread->user_stack;
+
+  // Add a VMA for the user stack
+  vma_t vma = {
+      .vm_start = s_stack,
+      .vm_end = e_stack,
+      .flags = VMA_ANONYMOUS | VMA_WRITE | VMA_READ | VMA_EXEC,
+      .file = NULL,
+      .file_offset = 0,
+      .file_size = 0,
+  };
+
+  if (!vma_add(new_process, &vma)) {
+    scheduler_remove_thread(new_process, main_thread->tid);
+    scheduler_remove_process(new_process->pid);
+    SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
+    vma_free(new_process);
+#ifdef PROCESS_DEBUG
+    log_error("Failed to add VMA for user stack");
+#endif
+    return -1;
+  }
+
+  SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
+
+#ifdef PROCESS_DEBUG
+  vma_print(new_process);
+#endif
+
+  if (process != NULL) {
+    *process = new_process;
+  }
+
+  return 0;
+}
 
 static inline size_t max(size_t a, size_t b) { return (a > b) ? a : b; }
 
@@ -111,6 +269,8 @@ void page_fault_isr_handler(struct interrupt_ecframe_s* frame) {
 #endif
   }
 
+  log_error("Segmentation fault at address 0x%lx, RIP: 0x%lx", faulting_address,
+            frame->rip);
   while (1);
 }
 
@@ -309,6 +469,35 @@ bool vma_remove(process_t* process, vma_t* vma) {
   }
 
   return false;
+}
+
+void vma_free(process_t* process) {
+  vma_t* current = process->vma_head;
+
+  while (current != NULL) {
+    vma_t* next = current->next;
+
+    if (current->file != NULL) {
+      vfs_close(current->file);
+    }
+
+    kfree(current);
+    current = next;
+  }
+
+  process->vma_head = NULL;
+}
+
+void vma_print(process_t* process) {
+  vma_t* current = process->vma_head;
+
+  log_print("VMAs for process '%s' (PID: %zu):\n", process->name, process->pid);
+
+  while (current != NULL) {
+    log_print("  VMA Start: 0x%lx, VMA End: 0x%lx, Flags: 0x%x\n",
+              current->vm_start, current->vm_end, current->flags);
+    current = current->next;
+  }
 }
 
 // void double_fault_isr_handler(struct interrupt_ecframe_s* frame) {

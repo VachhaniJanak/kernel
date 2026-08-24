@@ -1,7 +1,7 @@
 #pragma once
 
 #include <mm/mm.h>
-#include <scheduler/scheduler.h>
+#include <process/scheduler.h>
 #include <stdbool.h>
 #include <stdint.h>
 

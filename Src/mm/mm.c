@@ -31,6 +31,10 @@ void* mm_get_root_table(void) {
   return phys_to_virt((void*)root_table_phys);
 }
 
+size_t mm_get_kernel_thread_stack_size(void) {
+  return mm_state.kernel_thread_stack_size;
+}
+
 void get_max_len(struct MemoryMapEntry_s* entries, size_t noEntries,
                  uint8_t type, size_t* max_usable_length,
                  uintptr_t* max_usable_base) {
@@ -155,6 +159,7 @@ int mm_init(void) {
 
   mm_state.kernel_stack_base = KERNEL_STACK_BASE;
   mm_state.kernel_stack_size = KERNEL_STACK_SIZE;
+  mm_state.kernel_thread_stack_size = KERNEL_THREAD_STACK_SIZE;
 
   mm_state.user_stack_base = USER_STACK_BASE;
   mm_state.user_stack_size = USER_STACK_SIZE;
