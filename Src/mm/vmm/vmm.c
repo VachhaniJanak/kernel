@@ -2,6 +2,7 @@
 #include <mm/mm.h>
 #include <mm/pmm/pmm.h>
 #include <mm/slub/slub.h>
+#include <mm/utils.h>
 #include <mm/vmm/vmm.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -41,10 +42,6 @@ bool init_vmm(struct mm_state_s* state) {
   return true;
 }
 
-static inline bool is_aligned(uintptr_t addr, size_t alignment) {
-  return (addr & (alignment - 1)) == 0;
-}
-
 static inline bool is_page_table_empty(uint64_t* table, size_t num_entries) {
   for (size_t i = 0; i < num_entries; i++) {
     if (table[i] & MMU_PRESENT) {
@@ -71,13 +68,13 @@ mm_result_t map_page(void* root_table, void* virt_addr, void* phys_addr,
 
   // Validate alignment for huge pages
   if (mm_flags & MM_FLAG_1GB) {
-    if (!is_aligned(virt, MM_SIZE_1GB)) return MM_ERR_INVALID_ALIGNMENT;
-    if (!is_aligned(phys, MM_SIZE_1GB)) return MM_ERR_INVALID_ALIGNMENT;
+    if (!is_page_aligned(virt, MM_SIZE_1GB)) return MM_ERR_INVALID_ALIGNMENT;
+    if (!is_page_aligned(phys, MM_SIZE_1GB)) return MM_ERR_INVALID_ALIGNMENT;
   }
 
   if (mm_flags & MM_FLAG_2MB) {
-    if (!is_aligned(virt, MM_SIZE_XMB(2))) return MM_ERR_INVALID_ALIGNMENT;
-    if (!is_aligned(phys, MM_SIZE_XMB(2))) return MM_ERR_INVALID_ALIGNMENT;
+    if (!is_page_aligned(virt, MM_SIZE_XMB(2))) return MM_ERR_INVALID_ALIGNMENT;
+    if (!is_page_aligned(phys, MM_SIZE_XMB(2))) return MM_ERR_INVALID_ALIGNMENT;
   }
 
   // Level 4 (PML4)
@@ -90,7 +87,7 @@ mm_result_t map_page(void* root_table, void* virt_addr, void* phys_addr,
     if (new_table == NULL) return MM_ERR_OUT_OF_MEMORY;
 
 #ifdef DEBUG
-    if (!is_aligned((uintptr_t)new_table, PDPT_ALIGNMENT)) {
+    if (!is_page_aligned((uintptr_t)new_table, PDPT_ALIGNMENT)) {
       pmm_free(new_table);
       return MM_ERR_INVALID_PM_ALIGNMENT;
     }
@@ -128,7 +125,7 @@ mm_result_t map_page(void* root_table, void* virt_addr, void* phys_addr,
     if (new_table == NULL) return MM_ERR_OUT_OF_MEMORY;
 
 #ifdef DEBUG
-    if (!is_aligned((uintptr_t)new_table, PD_ALIGNMENT)) {
+    if (!is_page_aligned((uintptr_t)new_table, PD_ALIGNMENT)) {
       pmm_free(new_table);
       return MM_ERR_INVALID_PM_ALIGNMENT;
     }
@@ -170,7 +167,7 @@ mm_result_t map_page(void* root_table, void* virt_addr, void* phys_addr,
     if (new_table == NULL) return MM_ERR_OUT_OF_MEMORY;
 
 #ifdef DEBUG
-    if (!is_aligned((uintptr_t)new_table, PT_ALIGNMENT)) {
+    if (!is_page_aligned((uintptr_t)new_table, PT_ALIGNMENT)) {
       pmm_free(new_table);
       return MM_ERR_INVALID_PM_ALIGNMENT;
     }
@@ -496,12 +493,12 @@ mm_result_t remap_page(void* root_table, void* virt_addr, void* new_phys_addr,
 
   // Validate alignment for huge pages
   if (mm_flags & MM_FLAG_1GB &&
-      !is_aligned((uintptr_t)new_phys_addr, MM_SIZE_1GB)) {
+      !is_page_aligned((uintptr_t)new_phys_addr, MM_SIZE_1GB)) {
     return MM_ERR_INVALID_ALIGNMENT;
   }
 
   if (mm_flags & MM_FLAG_2MB &&
-      !is_aligned((uintptr_t)new_phys_addr, MM_SIZE_XMB(2))) {
+      !is_page_aligned((uintptr_t)new_phys_addr, MM_SIZE_XMB(2))) {
     return MM_ERR_INVALID_ALIGNMENT;
   }
 
@@ -640,6 +637,10 @@ static inline void* pop(size_t size) {
   return addr;
 }
 
+static inline uintptr_t get_end_addr(void* addr, size_t size) {
+  return (uintptr_t)addr + size;
+}
+
 static inline void* vmalloc_vaddr(size_t size) {
   void* addr = pop(size);
 
@@ -718,7 +719,7 @@ void* vmalloc(size_t size, mm_flags_t flags, bool continuous) {
   if (size == 0) return NULL;
 
   const size_t page_size = mm_state->page_size;
-  size = round_to_page_size(size, page_size);
+  size = page_align_up(size, page_size);
   const size_t no_pages = size / page_size;
 
   if (!pmm_pages_avaliable(no_pages)) return NULL;

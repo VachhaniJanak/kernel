@@ -74,6 +74,8 @@ DEFINE_ISR_NE_X86_64(keyboard_irq_isr);
 
 DEFINE_ISR_NE_X86_64(ahci_irq_isr);
 
+DEFINE_ISR_NE_X86_64(apic_timer_irq_isr);
+
 .global timer_irq_isr
 .extern timer_irq_isr_handler       
 .type timer_irq_isr, @function

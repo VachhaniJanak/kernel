@@ -1,5 +1,6 @@
 #pragma once
 
+#include <arch/x86_64/timer.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <vfs/vfs.h>
@@ -16,13 +17,22 @@ typedef enum {
   THREAD_BLOCKED
 } task_status_t;
 
-typedef enum { VMA_READ = 0x01, VMA_WRITE = 0x02, VMA_EXEC = 0x04 } vma_flags_t;
+typedef enum {
+  VMA_READ = 0x01,
+  VMA_WRITE = 0x02,
+  VMA_EXEC = 0x04,
+  VMA_NONE = 0x08,
+} vma_flags_t;
 
 typedef enum {
   VMA_ANONYMOUS = 0x10,    // No file backing (Stack, Heap, BSS gap)
   VMA_FILE_BACKED = 0x20,  // Needs to be read from a file (ELF code/data)
-  VMA_SHARED = 0x40,       // Shared memory
-  VMA_PRIVATE = 0x80       // Private memory
+  VMA_DOWNWARD = 0x40,
+  VMA_SHARED = 0x80,
+  VMA_PRIVATE = 0x100,
+  VMA_GUARD = 0x200,
+  VMA_MMAP = 0x400,
+  VMA_HEAP = 0x800
 } vma_type_t;
 
 typedef struct vma_s {
@@ -32,6 +42,7 @@ typedef struct vma_s {
   vfs_t* file;
   uint64_t file_offset;
   uint64_t file_size;
+  struct vma_s* prev;
   struct vma_s* next;
 } vma_t;
 
@@ -39,11 +50,13 @@ typedef struct thread_s {
   size_t tid;
   char name[THREAD_NAME_LEN];
   task_status_t status;
-  void* user_stack;
-  void* kernel_stack;
-  void* current_stack_ptr;
-  size_t wakeup_time;
+  void* user_stack_base;    // base address of the user stack
+  void* kernel_stack_base;  // base address of the kernel stack
+  void* kernel_stack_ptr;   // current stack pointer for the kernel stack
+  void* user_stack_ptr;     // current stack pointer for the user stack
+  timer_tick_t wakeup_time;
   struct thread_s* next;
+  int exit_code;
 } thread_t;
 
 typedef struct process_s {
@@ -53,6 +66,10 @@ typedef struct process_s {
   struct thread_s* thread_list_start;
   struct thread_s* thread_list_end;
   struct vma_s* vma_head;
+  struct vma_s* vma_tail;
+  struct vma_s* heap_vma;
+  uintptr_t brk;
+  struct vma_s* mmap_vma;
   struct process_s* next;
 } process_t;
 
@@ -71,9 +88,9 @@ struct scheduler_state_s {
 
 // This structure holds data specific to ONE CPU core.
 typedef struct {
-  uint64_t user_rsp;    // Offset 0x00
-  uint64_t kernel_rsp;  // Offset 0x08
-  uint64_t cpu_id;      // Offset 0x10
+  uint64_t user_sp;    // Offset 0x00
+  uint64_t kernel_sp;  // Offset 0x08
+  uint64_t cpu_id;     // Offset 0x10
 } cpu_local_data_t;
 
 typedef struct {
@@ -91,10 +108,6 @@ thread_t* scheduler_get_current_thread(void);
 
 thread_t* scheduler_get_idle_thread(void);
 
-process_t* scheduler_get_process_list_start(void);
-
-process_t* scheduler_get_process_list_end(void);
-
 size_t scheduler_get_total_processes(void);
 
 size_t scheduler_get_total_threads(void);
@@ -110,5 +123,3 @@ bool scheduler_remove_thread(process_t* process, size_t tid);
 thread_t* scheduler_get_thread(process_t* process, size_t tid);
 
 bool scheduler_remove_process(size_t pid);
-
-size_t get_system_time(void);

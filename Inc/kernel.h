@@ -21,10 +21,6 @@
 
 #define USER_STACK_BASE 0x00007FFFFFFFF000ULL  // top of the user stack
 #define USER_STACK_SIZE (8 * (1UL << 20))      // 8 MiB
-
 #define USER_KERNEL_STACK_SIZE (8 * (1UL << 10))  // 8 KiB
 
 #define USER_MMAP_BASE 0x00007FFFF7000000ULL  // base of the user mmap area
-#define USER_MMAP_SIZE (1 * (1UL << 40))      // 1 TiB
-
-#define NULL_ADDR 0x0000000000000000ULL

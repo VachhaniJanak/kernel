@@ -76,7 +76,7 @@ void kmain(void) {
   LOG_NEWLINE();
   LOG_DEBUG("CPU Count: %lu\n", getMADTEntryCount(0));
 
-  init_timer();
+  timer_init();
 
   ps2_init();
 
@@ -88,7 +88,7 @@ void kmain(void) {
 
   init_ahci();
 
-  sleep_millis(1000);
+  timer_sleep_ms(1000);
 
   if (!init_vfs()) {
     LOG_ERROR("VFS initialization failed!");
@@ -101,6 +101,6 @@ void kmain(void) {
 
   while (true) {
     log_error("scheduler is exited");
-    sleep_millis(1000);
+    timer_sleep_ms(1000);
   }
 }

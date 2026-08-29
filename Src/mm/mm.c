@@ -3,6 +3,7 @@
 #include <kernel.h>
 #include <mm/mm.h>
 #include <mm/pmm/pmm.h>
+#include <mm/utils.h>
 #include <mm/vmm/kheap.h>
 #include <mm/vmm/vmm.h>
 #include <stdint.h>
@@ -24,7 +25,9 @@ void* mm_get_user_mmap_base(void) { return (void*)mm_state.user_mmap_base; }
 
 size_t mm_get_user_stack_size(void) { return mm_state.user_stack_size; }
 
-size_t mm_get_user_mmap_size(void) { return mm_state.user_mmap_size; }
+void* mm_get_user_virtual_base(void) {
+  return (void*)mm_state.user_virtual_base;
+}
 
 void* mm_get_root_table(void) {
   uintptr_t root_table_phys = get_page_table_addr();
@@ -59,7 +62,7 @@ bool mm_setup_kstack(void) {
   const mm_flags_t flags = MMU_WRITABLE;
   const size_t page_size = mm_state.page_size;
   const size_t stack_size =
-      round_to_page_size(mm_state.kernel_stack_size, page_size);
+      page_align_up(mm_state.kernel_stack_size, page_size);
   const size_t no_pages = stack_size / mm_state.page_size;
 
   // check if stack is aligned to page size
@@ -161,12 +164,12 @@ int mm_init(void) {
   mm_state.kernel_stack_size = KERNEL_STACK_SIZE;
   mm_state.kernel_thread_stack_size = KERNEL_THREAD_STACK_SIZE;
 
+  mm_state.user_virtual_base = USER_VIRTUAL_BASE;
   mm_state.user_stack_base = USER_STACK_BASE;
   mm_state.user_stack_size = USER_STACK_SIZE;
   mm_state.user_kernel_stack_size = USER_KERNEL_STACK_SIZE;
 
   mm_state.user_mmap_base = USER_MMAP_BASE;
-  mm_state.user_mmap_size = USER_MMAP_SIZE;
 
   // set kernel root table
   mm_state.kernel_root_table = (void*)get_page_table_addr();
@@ -228,88 +231,99 @@ mm_result_t mm_create_page_table(uintptr_t* user_root_table) {
   return MM_SUCCESS;
 }
 
-mm_result_t mm_allocate_user_stacks(void* root_table,
-                                    uintptr_t* user_stack_base,
-                                    uintptr_t* kernel_stack_base) {
-  if (root_table == NULL || user_stack_base == NULL ||
-      kernel_stack_base == NULL) {
+mm_result_t mm_allocate_kstack(void* root_table, uintptr_t* stack_base) {
+  if (root_table == NULL || stack_base == NULL) {
     return MM_ERR_INVALID_PAGE_TABLE;
   }
 
   const size_t page_size = mm_state.page_size;
+  size_t stack_size = page_align_up(mm_state.user_kernel_stack_size, page_size);
 
-  mm_flags_t u_flags = MM_FLAG_WRITABLE | MM_FLAG_USER;
-  mm_flags_t k_flags = MM_FLAG_WRITABLE;
+  // Allocate stack
+  mm_flags_t flags = MM_FLAG_WRITABLE | MM_FLAG_USER;
+  void* addr = vmalloc(stack_size, flags, false);
 
-  void* kernel_stack_virt = (void*)mm_state.user_stack_base;
-  kernel_stack_virt = PAGE_ALIGN_UP(kernel_stack_virt, page_size);
-  *kernel_stack_base = (uintptr_t)kernel_stack_virt;
+  if (addr == NULL) {
+    return MM_ERR_OUT_OF_MEMORY;
+  }
 
-  size_t kernel_stack_size = mm_state.user_kernel_stack_size;
-  kernel_stack_size = round_to_page_size(kernel_stack_size, page_size);
+  *stack_base = (uintptr_t)addr + stack_size;  // Stack grows downwards
+  return MM_SUCCESS;
+}
 
-  // boundary between user stack and kernel stack
-  uintptr_t boundary = kernel_stack_size;
-  boundary += mm_state.page_size;  // leave a guard page
+mm_result_t mm_free_kstack(void* root_table, uintptr_t stack_base) {
+  if (root_table == NULL) {
+    return MM_ERR_INVALID_PAGE_TABLE;
+  }
 
-  void* user_stack_virt = (void*)((uintptr_t)kernel_stack_virt - boundary);
-  user_stack_virt = PAGE_ALIGN_DOWN(user_stack_virt, page_size);
-  *user_stack_base = (uintptr_t)user_stack_virt;
+  const size_t page_size = mm_state.page_size;
+  size_t stack_size = page_align_up(mm_state.user_kernel_stack_size, page_size);
+
+  uintptr_t stack_start = stack_base - stack_size;
+  vfree((void*)stack_start);
+
+  return MM_SUCCESS;
+}
+
+mm_result_t mm_allocate_pstack(void* root_table, uintptr_t* stack_base) {
+  if (root_table == NULL || stack_base == NULL) {
+    return MM_ERR_INVALID_PAGE_TABLE;
+  }
+
+  const size_t page_size = mm_state.page_size;
+  size_t stack_virt_addr = page_align_down(mm_state.user_stack_base, page_size);
+  *stack_base = (uintptr_t)stack_virt_addr;
 
   // stack grows downwards, so we need to allocate the last page first
-  user_stack_virt = (void*)((uintptr_t)user_stack_virt - page_size);
+  stack_virt_addr -= page_size;
 
   // Allocate user stack
-  void* user_stack_page = pmm_alloc(page_size);
+  void* phys_page = pmm_alloc(page_size);
 
-  if (user_stack_page == NULL) {
+  if (phys_page == NULL) {
     return MM_ERR_OUT_OF_MEMORY;
   }
 
   // Map user stack
   mm_result_t result;
+  mm_flags_t flags = MM_FLAG_WRITABLE | MM_FLAG_USER;
 
-  result = map_page(root_table, user_stack_virt, user_stack_page, u_flags);
+  result = map_page(root_table, (void*)stack_virt_addr, phys_page, flags);
 
   if (result != MM_SUCCESS) {
-    pmm_free(user_stack_page);
+    pmm_free(phys_page);
     return result;
   }
 
-  const size_t num_pages = kernel_stack_size / page_size;
+  return MM_SUCCESS;
+}
 
-  for (size_t i = 0; i < num_pages; i++) {
-    void* kernel_stack_page = pmm_alloc(kernel_stack_size);
+mm_result_t mm_free_pstack(void* root_table, uintptr_t stack_base) {
+  if (root_table == NULL) {
+    return MM_ERR_INVALID_PAGE_TABLE;
+  }
 
-    if (kernel_stack_page != NULL) {
-      // stack grows downwards, so we need to allocate the last page first
-      kernel_stack_virt = (void*)((uintptr_t)kernel_stack_virt - page_size);
+  // check if stack_base is aligned to page size
+  if (!is_page_aligned(stack_base, mm_state.page_size)) {
+    return MM_ERR_INVALID_ALIGNMENT;
+  }
 
-      result =
-          map_page(root_table, kernel_stack_virt, kernel_stack_page, k_flags);
+  const size_t page_size = mm_state.page_size;
+  const size_t stack_size = page_align_up(mm_state.user_stack_size, page_size);
 
-      if (result == MM_SUCCESS) continue;
+  uintptr_t stack_virt_addr = stack_base - stack_size;
+  const size_t no_pages = stack_size / page_size;
+
+  for (size_t i = 0; i < no_pages; i++) {
+    uintptr_t page_virt_addr = stack_virt_addr + i * page_size;
+    uintptr_t phys_addr = 0;
+
+    mm_result_t result =
+        unmap_page(root_table, (void*)page_virt_addr, &phys_addr);
+
+    if (result == MM_SUCCESS && phys_addr != 0) {
+      pmm_free((void*)phys_addr);
     }
-
-    // rollback user stack allocation
-    uintptr_t phys_addr;
-    result = unmap_page(root_table, user_stack_virt, &phys_addr);
-
-    if (result == MM_SUCCESS) pmm_free((void*)phys_addr);
-
-    // rollback kernel stack allocation
-    for (size_t j = 0; j < i; j++) {
-      void* kernel_stack_page =
-          (void*)((uintptr_t)kernel_stack_virt + page_size);
-
-      uintptr_t phys_addr;
-
-      result = unmap_page(root_table, kernel_stack_page, &phys_addr);
-
-      if (result == MM_SUCCESS) pmm_free((void*)phys_addr);
-    }
-
-    return MM_ERR_OUT_OF_MEMORY;
   }
 
   return MM_SUCCESS;

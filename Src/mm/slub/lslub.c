@@ -1,6 +1,6 @@
 #include "rbtree.h"
 #include "slubutils.h"
-
+#include <mm/utils.h>
 #include <mm/slub/slub.h>
 
 #include <utils/printf.h>
@@ -133,7 +133,7 @@ bool lslub_free(struct lslub_state_s *state, void *ptr) {
   if (ptr == NULL)
     return false;
 
-  void *page_addr = round_to_page_boundary(ptr, state->page_size);
+  void *page_addr = (void *)page_align_down((uintptr_t)ptr, state->page_size);
   kmem_slab_t *slab_ptr = slub_rb_search(&slab_cache_map, (void *)page_addr);
 
   if (slab_ptr == NULL)

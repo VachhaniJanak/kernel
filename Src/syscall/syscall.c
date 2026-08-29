@@ -1,47 +1,42 @@
 #include <arch/x86_64/syscall.h>
+#include <drivers/serial/serial.h>
+#include <process/process.h>
+#include <process/thread.h>
 #include <stddef.h>
 #include <syscall/syscall.h>
 #include <utils/log.h>
 
 // Define a type for our system call functions
-typedef uint64_t (*syscall_handler_t)(syscall_frame_t* frame);
+typedef void (*syscall_handler_t)(syscall_frame_t* frame);
 
-uint64_t sys_getpid(syscall_frame_t* frame) {
-  // For demonstration purposes, we'll just return a fixed PID.
-  // In a real implementation, this would return the actual process ID.
-  return 42;  // Example PID
-}
-
-uint64_t sys_write(syscall_frame_t* frame) {
+void sys_write(syscall_frame_t* frame) {
   // Extract arguments from the syscall frame
   uint64_t fd = frame->arg1;
   const char* buffer = (const char*)frame->arg2;
   uint64_t count = frame->arg3;
-
-  // For demonstration purposes, we'll just log the write operation.
-  // In a real implementation, this would write to the specified file
-  // descriptor.
-  log_info("sys_write called with fd=%lu, buffer=%p, count=%lu", fd, buffer,
-           count);
-
-  // Return the number of bytes written (for demonstration, we return count)
-  return count;
+  frame->syscall_num = serial_write(buffer, count);
+  // log_print("sys_write: fd=%lu, buffer=%p, count=%lu\n", fd, buffer, count);
 }
 
-uint64_t sys_read(syscall_frame_t* frame) { return 0; }
-
-uint64_t sys_exit(syscall_frame_t* frame) { return 0; }
+void sys_read(syscall_frame_t* frame) {}
 
 syscall_handler_t syscall_table[] = {
     [SYS_GETPID] = sys_getpid,
     [SYS_WRITE] = sys_write,
     [SYS_READ] = sys_read,
-    [SYS_EXIT] = sys_exit,
+    [SYS_PTHREAD_CREATE] = sys_pthread_create,
+    [SYS_PTHREAD_JOIN] = sys_pthread_join,
+    [SYS_PTHREAD_EXIT] = sys_pthread_exit,
+    [SYS_PTHREAD_SLEEP] = sys_pthread_sleep,
+    [SYS_MUNMAP] = sys_munmap,
+    [SYS_MMAP] = sys_mmap,
+    [SYS_BRK] = sys_brk,
+    [SYS_MPROTECT] = sys_mprotect,
 };
 
-void syscall_init(void* cpu_local_data) { x86_64_syscall_init(cpu_local_data); }
-
 void syscall_handler(syscall_frame_t* frame) {
+  // log_debug("Syscall invoked: %lu\n", frame->syscall_num);
+
   const size_t num_entries = sizeof(syscall_table) / sizeof(syscall_handler_t);
 
   if (frame->syscall_num >= num_entries) {
@@ -56,5 +51,9 @@ void syscall_handler(syscall_frame_t* frame) {
     return;
   }
 
-  frame->syscall_num = handler(frame);
+  uint64_t saved_syscall_num = frame->syscall_num;
+  handler(frame);
+  // log_debug("Syscall %lu executed successfully\n", saved_syscall_num);
 };
+
+void syscall_init(void* cpu_local_data) { x86_64_syscall_init(cpu_local_data); }

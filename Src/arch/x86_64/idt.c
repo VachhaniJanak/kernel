@@ -26,13 +26,14 @@ static inline void set_lidt(void* ptr) {
 void init_idt(void) {
   IDTRTypedef idt_ptr = {.limit = sizeof(idt) - 1, .base = (uint64_t)idt};
 
-  set_idt_entry(14, page_fault_isr, 0, INTERRUPT_GATE, 3);
-  set_idt_entry(10, invalid_tss_isr, 0, INTERRUPT_GATE, 3);
   set_idt_entry(6, invalid_opcode_isr, 0, INTERRUPT_GATE, 3);
   set_idt_entry(8, double_fault_isr, 1, INTERRUPT_GATE, 3);
+  set_idt_entry(10, invalid_tss_isr, 0, INTERRUPT_GATE, 3);
   set_idt_entry(13, gp_fault_isr, 0, INTERRUPT_GATE, 3);
+  set_idt_entry(14, page_fault_isr, 0, INTERRUPT_GATE, 3);
   set_idt_entry(32, timer_irq_isr, 0, INTERRUPT_GATE, 0);
   set_idt_entry(33, keyboard_irq_isr, 0, INTERRUPT_GATE, 0);
+  set_idt_entry(34, apic_timer_irq_isr, 0, INTERRUPT_GATE, 0);
   set_idt_entry(40, ahci_irq_isr, 0, INTERRUPT_GATE, 0);
 
   set_lidt(&idt_ptr);

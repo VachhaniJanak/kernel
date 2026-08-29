@@ -51,6 +51,7 @@ void gp_fault_isr(void);
 void timer_irq_isr(void);
 void keyboard_irq_isr(void);
 void ahci_irq_isr(void);
+void apic_timer_irq_isr(void);
 
 void page_fault_isr_handler(struct interrupt_ecframe_s* frame);
 void invalid_tss_isr_handler(struct interrupt_ecframe_s* frame);
@@ -60,3 +61,5 @@ void gp_fault_isr_handler(struct interrupt_ecframe_s* frame);
 // uint64_t timer_irq_isr_handler(struct scheduler_frame_s* frame);
 void keyboard_irq_isr_handler(void);
 void ahci_irq_isr_handler(void);
+void apic_timer_irq_isr_handler(void);
+

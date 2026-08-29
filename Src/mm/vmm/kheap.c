@@ -79,6 +79,10 @@ static inline void* pop(void) {
   return addr;
 }
 
+static inline uintptr_t get_end_addr(void* addr, size_t page_size) {
+  return (uintptr_t)addr + page_size;
+}
+
 static inline void* kheap_vaddr(void) {
   void* addr = pop();
 

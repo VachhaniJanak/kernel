@@ -71,3 +71,5 @@ WEAK void keyboard_irq_isr_handler(void) {
 }
 
 WEAK void ahci_irq_isr_handler(void) { lapic_eoi(); }
+
+WEAK void apic_timer_irq_isr_handler(void) { lapic_eoi(); }

@@ -2,12 +2,12 @@
 
 #include <mm/pmm/buddy.h>
 #include <mm/pmm/pmm.h>
+#include <mm/utils.h>
 
 #include <stdbool.h>
 #include <stdint.h>
 
 #include <utils/log.h>
-#include <utils/utils.h>
 
 buddy_t usable_memory = {0};
 
@@ -31,7 +31,7 @@ bool init_pmm(uintptr_t usable_addr, size_t usable_size, size_t page_size,
   }
 
   // number of pages required for header
-  size_t pages_required = round_to_page(total_header_size, page_size);
+  size_t pages_required = page_align_up(total_header_size, page_size) / page_size;
 
   // free space after
   size_t free_size = usable_size - (pages_required * page_size);

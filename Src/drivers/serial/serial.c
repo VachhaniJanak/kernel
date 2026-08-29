@@ -1,3 +1,4 @@
+#include <drivers/serial/serial.h>
 #include <arch/x86_64/io.h>
 #include <platform/attributes.h>
 #include <process/locks.h>
@@ -34,7 +35,19 @@ int serial_printf(const char* format, ...) {
   int ret = vfctprintf(_serial_putchar, NULL, format, va);
 
   va_end(va);
-  
+
   SPIN_LOCK_RELEASE(&serial_lock, flags);
   return ret;
+}
+
+size_t serial_write(const char* buffer, size_t length) {
+  unsigned long flags;
+  SPIN_LOCK_ACQUIRE(&serial_lock, flags);
+
+  for (size_t i = 0; i < length; ++i) {
+    _serial_putchar(buffer[i], NULL);
+  }
+
+  SPIN_LOCK_RELEASE(&serial_lock, flags);
+  return length;
 }

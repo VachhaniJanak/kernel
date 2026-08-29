@@ -74,5 +74,11 @@ static inline size_t timn_int_route(hpetTimerRegisters_t* tim, int skip) {
   return 64;
 }
 
-bool timn_config(hpetRegisters_t* ptr, size_t tim, bool is_ltrig,
-                 bool enable_int, bool is_periodic, uint64_t value);
+static inline size_t get_timn_int_route(hpetTimerRegisters_t* tim) {
+  uint64_t reg = tim->timerConfigAndCap >> 32;
+  return reg;
+}
+
+bool timn_config(hpetRegisters_t* ptr, size_t tim, size_t route_pin,
+                 bool is_ltrig, bool enable_int, bool is_periodic,
+                 uint64_t value);

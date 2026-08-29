@@ -113,7 +113,7 @@ static inline size_t calib_apic_timer(void) {
 
   for (size_t i = 0; i < sample_size; i++) {
     lapic_write(APIC_TMRINITCNT, 0xFFFFFFFF);
-    sleep_millis(10);
+    timer_sleep_ms(10);
     samples[i] = 0xFFFFFFFF - get_apic_timer_value();
   }
 
@@ -167,6 +167,10 @@ void init_apic(void) {
 
   // Set up IOAPIC redirection for keyboard IRQ (IRQ1) to vector 33
   set_ioapic_redirection(1, 33, lapic_id, false);
+
+  // Set up IOAPIC redirection for timer IRQ (IRQ0) to vector 32
+  size_t apic_timer_irq_pin = timer_get_irq_pin();
+  set_ioapic_redirection(apic_timer_irq_pin, 34, lapic_id, false);
 
 #ifdef APIC_DEBUG
   uint32_t ioapicver = ioapic_read(IOAPICVER);

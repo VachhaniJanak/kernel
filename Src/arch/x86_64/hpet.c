@@ -1,11 +1,12 @@
-#include "hpet.h"
+#include <arch/x86_64/hpet.h>
 
 #include <stdbool.h>
 #include <stdint.h>
 #include <utils/log.h>
 
-bool timn_config(hpetRegisters_t* ptr, size_t tim, bool is_ltrig,
-                 bool enable_int, bool is_periodic, uint64_t value) {
+bool timn_config(hpetRegisters_t* ptr, size_t tim, size_t route_pin,
+                 bool is_ltrig, bool enable_int, bool is_periodic,
+                 uint64_t value) {
   hpetTimerRegisters_t* tim_ptr = &ptr->timers[tim];
 
   if (!is_timn_64bit(tim_ptr)) {
@@ -30,8 +31,6 @@ bool timn_config(hpetRegisters_t* ptr, size_t tim, bool is_ltrig,
     }
     val |= (1 << 3) | (1 << 6);
   }
-
-  size_t route_pin = timn_int_route(tim_ptr, tim + 1);
 
   if (route_pin > 32) {
     LOG_ERROR("Timer route pin not found!");

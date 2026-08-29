@@ -1,8 +1,7 @@
 #include <mm/pmm/buddy.h>
-
+#include <mm/utils.h>
 #include <stdbool.h>
 
-#include <utils/utils.h>
 
 #define _min(a, b) ((a) < (b) ? (a) : (b))
 

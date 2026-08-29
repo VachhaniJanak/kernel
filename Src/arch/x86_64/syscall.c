@@ -45,6 +45,7 @@ void x86_64_syscall_init(void* cpu_local_data) {
   wrmsr(MSR_STAR, star);
 
   wrmsr(MSR_KERNEL_GS_BASE, (uint64_t)cpu_local_data);
+  wrmsr(MSR_GS_BASE, (uint64_t)cpu_local_data);
 }
 
 WEAK void syscall_handler(syscall_frame_t* frame) { UNUSED(frame); };

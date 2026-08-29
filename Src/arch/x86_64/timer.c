@@ -1,27 +1,42 @@
 #include <arch/x86_64/apic.h>
+#include <arch/x86_64/hpet.h>
 #include <arch/x86_64/timer.h>
 #include <drivers/acpi/acpi.h>
 #include <mm/mm.h>
 #include <stdint.h>
 #include <utils/log.h>
-#include <utils/utils.h>
 
-#include "hpet.h"
+// #define TIMER_DEBUG
 
-static const uint64_t FS_PER_SEC = 1000000000000000ULL;
-static hpetRegisters_t* hpetRegs = NULL;
-static volatile size_t millis_ticks = 0;
+hpetRegisters_t* timer_hpet_reg = NULL;
+volatile size_t timer_ticks_per_ms = 0;  // Number of HPET ticks per millisecond
+volatile size_t timer_sec_ticks = 0;
 
-size_t get_counter_value(void) { return hpetRegs->mainCounterValue; }
+// 1 millisecond = 1e6 nanoseconds = 1e12 femtoseconds
+static const uint64_t fs_per_ms = 1e12;
 
-void sleep_millis(size_t milli) {
-  size_t curr_tick = get_counter_value();
-  while (get_counter_value() - curr_tick <= milli * millis_ticks) {
+void apic_timer_irq_isr_handler(void) {
+  timer_sec_ticks++;
+  lapic_eoi();
+}
+
+// This function provides a busy-wait sleep for the specified number of
+// milliseconds.
+void timer_sleep_ms(size_t milli) {
+  timer_tick_t curr_tick = timer_get_ticks();
+
+  while (timer_get_ticks() - curr_tick <= milli * timer_ticks_per_ms) {
     __asm__ volatile("pause");
   }
 }
 
-void init_timer(void) {
+size_t timer_get_irq_pin(void) {
+  hpetTimerRegisters_t* tim_ptr = &timer_hpet_reg->timers[0];
+  size_t route_pin = timn_int_route(tim_ptr, 1);
+  return route_pin;
+}
+
+void timer_init(void) {
   struct hpet_s* hpet = getHpet();
 
   if (hpet == NULL) {
@@ -36,24 +51,50 @@ void init_timer(void) {
     return;
   }
 
-  hpetRegs = (hpetRegisters_t*)hpetVirtAddr;
+  timer_hpet_reg = (hpetRegisters_t*)hpetVirtAddr;
 
-  if (!is_64bit_wide(hpetRegs)) {
-    LOG_ERROR("Timer is not 64-bit wid!");
+  if (!is_64bit_wide(timer_hpet_reg)) {
+    LOG_ERROR("Timer is not 64-bit wide!");
     return;
   }
 
   // return per tick period in femtosecond
-  uint64_t clk_period = get_counter_clk_period(hpetRegs);
-  uint64_t ticks_per_sec = FS_PER_SEC / clk_period;
-  uint64_t ticks_per_ms = ticks_per_sec / 1000;
-  millis_ticks = ticks_per_ms;
+  uint64_t clk_period = get_counter_clk_period(timer_hpet_reg);
 
-  // if (!timn_config(hpetRegs, 0, false, true, true, ticks_per_ms)) {
-  //   LOG_ERROR("Faild to initialize timer!");
-  //   return;
-  // }
+  // Calculate the number of ticks per millisecond
+  uint64_t ticks_per_ms = fs_per_ms / clk_period;
+  uint64_t ticks_per_sec = 1000 * ticks_per_ms;
+  timer_ticks_per_ms = ticks_per_ms;
 
-  hpetRegs->mainCounterValue = 0;
-  enable_main_counter(hpetRegs);
+  size_t route_pin = timer_get_irq_pin();
+
+  if (!timn_config(timer_hpet_reg, 0, route_pin, false, true, true,
+                   ticks_per_sec)) {
+#ifdef TIMER_DEBUG
+    log_error("Failed to initialize timer!");
+#endif
+    return;
+  }
+
+#ifdef TIMER_DEBUG
+  log_print("HPET initialized:\n");
+  log_print("  HPET Address: 0x%lx\n", (uintptr_t)hpetVirtAddr);
+  log_print("  Clock Period: %lu femtoseconds\n", clk_period);
+  log_print("  Ticks per Millisecond: %lu\n", ticks_per_ms);
+  log_print("  Ticks per Second: %lu\n", ticks_per_sec);
+  log_print("  Routing Pin: ");
+
+  for (size_t i = 0; i < 32; i++) {
+    size_t route_pins = get_timn_int_route(&timer_hpet_reg->timers[0]);
+
+    if ((route_pins >> i) & 0x1) {
+      log_print("%zu, ", i);
+    }
+  }
+
+  log_newline();
+#endif
+
+  timer_hpet_reg->mainCounterValue = 0;
+  enable_main_counter(timer_hpet_reg);
 }

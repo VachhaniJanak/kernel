@@ -1,5 +1,5 @@
 #include "slubutils.h"
-
+#include <mm/utils.h>
 #include <mm/slub/slub.h>
 
 #include <stdbool.h>
@@ -119,7 +119,7 @@ bool sslub_free(struct sslub_state_s *state, void *ptr) {
   if (ptr == NULL)
     return false;
 
-  void *page_addr = round_to_page_boundary(ptr, state->page_size);
+  void *page_addr = (void *)page_align_down((uintptr_t)ptr, state->page_size);
   kmem_slab_t *slab_ptr = (kmem_slab_t *)page_addr;
 
   // valided the given address

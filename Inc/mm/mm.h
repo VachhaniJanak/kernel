@@ -74,12 +74,11 @@ struct mm_state_s {
   uintptr_t kernel_stack_size;
   size_t kernel_thread_stack_size;
 
+  uintptr_t user_virtual_base;
   uintptr_t user_stack_base;
   size_t user_stack_size;
   size_t user_kernel_stack_size;
-
   uintptr_t user_mmap_base;
-  size_t user_mmap_size;
 
   struct vm_area_s stack_state;
 };
@@ -122,11 +121,14 @@ void* mm_get_user_mmap_base(void);
 
 size_t mm_get_user_stack_size(void);
 
-size_t mm_get_user_mmap_size(void);
+void* mm_get_user_virtual_base(void);
 
 mm_result_t mm_create_page_table(uintptr_t* user_root_table);
 
-mm_result_t mm_allocate_user_stacks(void* root_table,
-                                    uintptr_t* user_stack_base,
-                                    uintptr_t* kernel_stack_base);
+mm_result_t mm_allocate_kstack(void* root_table, uintptr_t* stack_base);
 
+mm_result_t mm_free_kstack(void* root_table, uintptr_t stack_base);
+
+mm_result_t mm_allocate_pstack(void* root_table, uintptr_t* stack_base);
+
+mm_result_t mm_free_pstack(void* root_table, uintptr_t stack_base);

@@ -30,10 +30,7 @@
 spinlock_t scheduler_state_lock = {0};
 
 static struct scheduler_state_s scheduler_state = {0};
-static volatile size_t system_tick = 0;
 static cpu_local_data_t bsp_local_data = {0};
-
-size_t get_system_time(void) { return system_tick; }
 
 process_t* scheduler_get_current_process(void) {
   return scheduler_state.current_process;
@@ -325,7 +322,7 @@ static inline void scheduler(struct scheduler_frame_s* frame,
     }
 
     if (next_thread->status == THREAD_SLEEPING &&
-        next_thread->wakeup_time <= get_system_time()) {
+        next_thread->wakeup_time <= timer_get_ticks()) {
       next_thread->wakeup_time = 0;
       next_thread->status = THREAD_RUNNING;
       break;
@@ -349,37 +346,46 @@ static inline void scheduler(struct scheduler_frame_s* frame,
     current_thread->status = THREAD_READY;
   }
 
-  current_thread->current_stack_ptr = (void*)frame;
+  current_thread->user_stack_ptr = (void*)bsp_local_data.user_sp;
+  current_thread->kernel_stack_ptr = (void*)frame;
 
   // switch to the next thread
   scheduler_state.current_process = next_process;
   scheduler_state.current_thread = next_thread;
 
-  bsp_local_data.kernel_rsp = (uint64_t)next_thread->kernel_stack;
-  set_tss_ring_x_stack(next_thread->kernel_stack, 0);
+  bsp_local_data.user_sp = (uint64_t)next_thread->user_stack_ptr;
+  bsp_local_data.kernel_sp = (uint64_t)next_thread->kernel_stack_base;
+
+  set_tss_ring_x_stack(next_thread->kernel_stack_base, 0);
 
   SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
 
 #ifdef SCHEDULER_DEBUG
-  log_print("[SCHEDULER] Frame:");
-  log_print("{thread %zu -> thread %zu}\n", current_thread->tid,
-            next_thread->tid);
-  log_print("  Current thread: %zu\n", current_thread->tid);
-  log_print("    RIP: 0x%lx\n", frame->rip);
-  log_print("    RSP: 0x%lx\n", frame->rsp);
-  log_print("    RFLAGS: 0x%lx\n", frame->rflags);
-  log_print("    CS: 0x%lx\n", frame->cs);
-  log_print("    SS: 0x%lx\n", frame->ss);
-  log_print("    Current RSP: 0x%lx\n", (uint64_t)frame);
-  log_newline();
+  if (current_thread->tid != next_thread->tid) {
+    log_print("[SCHEDULER] Frame:");
+    log_print("{thread %zu -> thread %zu}\n", current_thread->tid,
+              next_thread->tid);
+    log_print("  Current thread: %zu\n", current_thread->tid);
+    log_print("    RIP: 0x%lx\n", frame->rip);
+    log_print("    RSP: 0x%lx\n", frame->rsp);
+    log_print("    RFLAGS: 0x%lx\n", frame->rflags);
+    log_print("    CS: 0x%lx\n", frame->cs);
+    log_print("    SS: 0x%lx\n", frame->ss);
+    log_print("    Current RSP: 0x%lx\n", (uint64_t)frame);
+    log_print("  Next thread: %zu\n", next_thread->tid);
+    log_print("    Current RSP: 0x%lx\n", next_thread->current_stack_ptr);
+    log_print("    Kernel RSP: 0x%lx\n", next_thread->kernel_stack_base);
+    log_print("    Process RSP: 0x%lx\n", next_thread->user_stack_base);
+    log_newline();
+  }
 #endif
+
   context_switch->rpt = (uint64_t)next_process->page_table;
-  context_switch->stack = (uint64_t)next_thread->current_stack_ptr;
+  context_switch->stack = (uint64_t)next_thread->kernel_stack_ptr;
 }
 
 uint64_t timer_irq_isr_handler(struct scheduler_frame_s* frame,
                                context_switch_t* context_switch) {
-  system_tick += 10;
   scheduler(frame, context_switch);
   lapic_eoi();
   return 0;
@@ -400,7 +406,7 @@ void test_thread1(void* arg) {
 
   while (true) {
     log_print("Thread 1: Counter = %zu\n", counter++);
-    kthread_sleep(1000);
+    kthread_sleep(6000);
   }
 }
 
@@ -411,7 +417,7 @@ void test_thread2(void* arg) {
 
   while (true) {
     log_print("Thread 2: Counter = %zu\n", counter++);
-    kthread_sleep(5000);
+    kthread_sleep(8000);
   }
 }
 
@@ -464,8 +470,8 @@ void scheduler_init(void) {
 
   kstrcpy(idle_thread->name, "idle");
   idle_thread->status = THREAD_READY;
-  idle_thread->kernel_stack = (void*)KERNEL_STACK_BASE;
-  idle_thread->current_stack_ptr = 0;
+  idle_thread->kernel_stack_base = (void*)KERNEL_STACK_BASE;
+  idle_thread->kernel_stack_ptr = 0;
 
   scheduler_state.idle_thread = idle_thread;
   scheduler_state.current_thread = scheduler_state.idle_thread;

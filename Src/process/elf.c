@@ -170,7 +170,16 @@ int load_elf_file(process_t* process, const char* path, void** entry_point) {
                    .file_size = phdr->p_filesz,
                    .next = NULL};
 
-      vma_add(process, &vma);
+      if (!vma_add(process, &vma)) {
+#ifdef ELF_LOADER_DEBUG
+        log_error("Failed to add VMA for ELF segment\n");
+#endif
+        vfs_close(file);
+        kfree(phdr);
+        kfree(ehdr);
+        kfree(file);
+        return 1;
+      }
     }
 
     if (!(phdr->p_memsz > phdr->p_filesz)) {
@@ -195,7 +204,16 @@ int load_elf_file(process_t* process, const char* path, void** entry_point) {
                  .file_size = 0,
                  .next = NULL};
 
-    vma_add(process, &vma);
+    if (!vma_add(process, &vma)) {
+#ifdef ELF_LOADER_DEBUG
+      log_error("Failed to add VMA for zeroed region of ELF segment\n");
+#endif
+      vfs_close(file);
+      kfree(phdr);
+      kfree(ehdr);
+      kfree(file);
+      return 1;
+    }
   }
 
   kfree(ehdr);
