@@ -35,6 +35,8 @@ typedef enum {
   VMA_HEAP = 0x800
 } vma_type_t;
 
+typedef enum { GS_USER = 0x0, GS_KERNEL = 0x1 } gs_state_t;
+
 typedef struct vma_s {
   uint64_t vm_start;
   uint64_t vm_end;
@@ -57,6 +59,7 @@ typedef struct thread_s {
   timer_tick_t wakeup_time;
   struct thread_s* next;
   int exit_code;
+  gs_state_t gs_state;  // thread is in user or kernel mode
 } thread_t;
 
 typedef struct process_s {
@@ -90,7 +93,15 @@ struct scheduler_state_s {
 typedef struct {
   uint64_t user_sp;    // Offset 0x00
   uint64_t kernel_sp;  // Offset 0x08
-  uint64_t cpu_id;     // Offset 0x10
+
+  /*
+   * GS state expected when this thread resumes.
+   *
+   * GS_USER   -> CPU must have user GS active
+   * GS_KERNEL -> CPU must have kernel GS active
+   */
+  gs_state_t gs_state;  // Offset 0x10
+  uint64_t cpu_id;      // Offset 0x18
 } cpu_local_data_t;
 
 typedef struct {

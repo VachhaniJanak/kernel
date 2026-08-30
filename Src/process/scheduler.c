@@ -346,6 +346,10 @@ static inline void scheduler(struct scheduler_frame_s* frame,
     current_thread->status = THREAD_READY;
   }
 
+  gs_state_t current_gs = bsp_local_data.gs_state;
+  gs_state_t next_gs = next_thread->gs_state;
+
+  current_thread->gs_state = current_gs;
   current_thread->user_stack_ptr = (void*)bsp_local_data.user_sp;
   current_thread->kernel_stack_ptr = (void*)frame;
 
@@ -355,6 +359,11 @@ static inline void scheduler(struct scheduler_frame_s* frame,
 
   bsp_local_data.user_sp = (uint64_t)next_thread->user_stack_ptr;
   bsp_local_data.kernel_sp = (uint64_t)next_thread->kernel_stack_base;
+  bsp_local_data.gs_state = next_gs;
+
+  if (current_gs != next_gs) {
+    __asm__ volatile("swapgs" : : : "memory");
+  }
 
   set_tss_ring_x_stack(next_thread->kernel_stack_base, 0);
 

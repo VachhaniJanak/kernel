@@ -51,6 +51,7 @@ static bool kthread_init(const char* name, thread_t* thread, size_t stack_size,
 
   thread->kernel_stack_ptr = (void*)(addr - frame_size);
   thread->user_stack_ptr = thread->user_stack_base;
+  thread->gs_state = 0;
 
   // Set up the initial stack frame for the thread
   struct scheduler_frame_s* frame = thread->kernel_stack_ptr;
@@ -215,6 +216,7 @@ bool pthread_init(process_t* process, const char* name, thread_t* thread,
   thread->kernel_stack_ptr =
       (void*)((uintptr_t)thread->kernel_stack_base - frame_size);
   thread->user_stack_ptr = thread->user_stack_base;
+  thread->gs_state = 0;
 
   uintptr_t phys_addr;
   result = get_mapping(root_table, thread->kernel_stack_ptr, &phys_addr);

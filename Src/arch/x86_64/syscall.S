@@ -37,6 +37,9 @@ syscall_entry:
   // Swap the GS register to access our hidden kernel pointers
   swapgs
 
+  // Set the GS state to indicate we are in kernel mode
+  mov $1, %gs:0x10
+
   // Save the user's stack pointer into a safe memory location via GS
   mov %rsp, %gs:0x00
 
@@ -47,8 +50,11 @@ syscall_entry:
   push %r11 // User RFLAGS
 
   PUSH_X86_64_REGS
+  
   mov %rsp, %rdi
+
   call syscall_handler
+  
   POP_X86_64_REGS
 
   pop %r11 // User RFLAGS
@@ -56,6 +62,9 @@ syscall_entry:
 
   // Restore the user's stack pointer from the safe memory location via GS
   mov %gs:0x00, %rsp
+
+  // Set the GS state to indicate we are in user mode
+  mov $0, %gs:0x10 
 
   // Swap the GS register back to the user GS
   swapgs
