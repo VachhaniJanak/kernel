@@ -41,26 +41,24 @@
 #define MARK_AS_UNDERLINE(val) ANSI_UNDERLINE val ANSI_RESET
 #define MARK_AS_ITALIC(val) ANSI_ITALIC val ANSI_RESET
 
-#define LOG_ERROR(fmt, ...)                                                    \
-  serial_printf(ANSI_COLOR_RED ANSI_BOLD "[ERROR] " fmt ANSI_RESET "\r\n",     \
-                ##__VA_ARGS__);
+#define LOG_ERROR(fmt, ...)                                                \
+  serial_printf(ANSI_COLOR_RED ANSI_BOLD "[ERROR] " fmt ANSI_RESET "\r\n", \
+                ##__VA_ARGS__)
 
-#define LOG_WARN(fmt, ...)                                                     \
-  serial_printf(ANSI_COLOR_YELLOW ANSI_BOLD "[WARN] " fmt ANSI_RESET "\r\n",   \
-                ##__VA_ARGS__);
+#define LOG_WARN(fmt, ...)                                                   \
+  serial_printf(ANSI_COLOR_YELLOW ANSI_BOLD "[WARN] " fmt ANSI_RESET "\r\n", \
+                ##__VA_ARGS__)
 
-#define LOG_DEBUG(fmt, ...)                                                    \
-  serial_printf(ANSI_COLOR_CYAN ANSI_BOLD "[DEBUG] " fmt ANSI_RESET,           \
-                ##__VA_ARGS__);
+#define LOG_DEBUG(fmt, ...)                                          \
+  serial_printf(ANSI_COLOR_CYAN ANSI_BOLD "[DEBUG] " fmt ANSI_RESET, \
+                ##__VA_ARGS__)
 
-#define LOG_INFO(fmt, ...)                                                     \
-  serial_printf(ANSI_COLOR_GREEN "[INFO] " fmt ANSI_RESET "\r\n",              \
-                ##__VA_ARGS__);
+#define LOG_INFO(fmt, ...) \
+  serial_printf(ANSI_COLOR_GREEN "[INFO] " fmt ANSI_RESET "\r\n", ##__VA_ARGS__)
 
-#define LOG_NEWLINE() serial_printf("\r\n");
+#define LOG_NEWLINE() serial_printf("\r\n")
 
-#define LOG_PRINT(fmt, ...) serial_printf(fmt, ##__VA_ARGS__);
-
+#define LOG_PRINT(fmt, ...) serial_printf(fmt, ##__VA_ARGS__)
 
 #define log_info LOG_INFO
 #define log_print LOG_PRINT

@@ -1,24 +1,13 @@
 #include <arch/x86_64/syscall.h>
-#include <drivers/serial/serial.h>
 #include <process/process.h>
 #include <process/thread.h>
 #include <stddef.h>
 #include <syscall/syscall.h>
+#include <tty/tty.h>
 #include <utils/log.h>
 
 // Define a type for our system call functions
 typedef void (*syscall_handler_t)(syscall_frame_t* frame);
-
-void sys_write(syscall_frame_t* frame) {
-  // Extract arguments from the syscall frame
-  uint64_t fd = frame->arg1;
-  const char* buffer = (const char*)frame->arg2;
-  uint64_t count = frame->arg3;
-  frame->syscall_num = serial_write(buffer, count);
-  // log_print("sys_write: fd=%lu, buffer=%p, count=%lu\n", fd, buffer, count);
-}
-
-void sys_read(syscall_frame_t* frame) {}
 
 syscall_handler_t syscall_table[] = {
     [SYS_GETPID] = sys_getpid,

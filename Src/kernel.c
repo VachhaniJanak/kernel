@@ -9,10 +9,10 @@
 #include <consolefont/font.h>
 #include <drivers/acpi/acpi.h>
 #include <drivers/ahci/ahci.h>
-#include <drivers/keyboard/ps.h>
 #include <drivers/pcie/pcie.h>
 #include <drivers/screen/screen.h>
 #include <drivers/serial/serial.h>
+#include <input/input.h>
 #include <kernel.h>
 #include <mm/mm.h>
 #include <mm/vmm/kheap.h>
@@ -50,13 +50,13 @@ void kmain(void) {
 
   ENABLE_INT;
 
-  init_psf_font();
+  consolefont_init();
 
   mm_init();
 
   set_stack_top(KERNEL_STACK_BASE);
 
-  if (!init_screen()) {
+  if (screen_init() != SCREEN_SUCCESS) {
     LOG_ERROR("Framebuffer initialization failed!");
     loop();
   }
@@ -73,12 +73,9 @@ void kmain(void) {
     loop();
   }
 
-  LOG_NEWLINE();
-  LOG_DEBUG("CPU Count: %lu\n", getMADTEntryCount(0));
-
   timer_init();
 
-  ps2_init();
+  input_init();
 
   DISABLE_INT;
   init_apic();
@@ -86,7 +83,7 @@ void kmain(void) {
 
   init_pcie();
 
-  init_ahci();
+  ahci_init();
 
   timer_sleep_ms(1000);
 
@@ -95,12 +92,10 @@ void kmain(void) {
     loop();
   }
 
-  kprintf("Initialization complete!\n");
-
   scheduler_init();
 
   while (true) {
-    log_error("scheduler is exited");
-    timer_sleep_ms(1000);
+    log_error("\tscheduler is exited\n");
+    timer_sleep_ms(5000);
   }
 }

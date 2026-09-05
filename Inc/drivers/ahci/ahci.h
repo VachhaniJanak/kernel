@@ -4,6 +4,16 @@
 #include <stdint.h>
 
 typedef enum {
+  AHCI_SUCCESS = 0,
+  AHCI_ERR_NO_DEVICE = -1,
+  AHCI_ERR_PCI = -2,
+  AHCI_ERR_OUT_OF_MEMORY = -3,
+  AHCI_ERR_MEMORY_MAPPING = -4,
+  AHCI_ERR_SATA_NOT_FOUND = -5,
+  AHCI_ERR_BAR = -6,
+} ahci_result_t;
+
+typedef enum {
   ATA_CMD_READ_DMA_EX = 0x25,
   ATA_CMD_WRITE_DMA_EX = 0x35,
   ATA_CMD_FLUSH_CACHE_EX = 0xEA,
@@ -143,7 +153,7 @@ typedef struct __attribute__((packed)) {
   uint8_t rsv1[4];  // Reserved
 } fis_reg_h2d_t;
 
-void init_ahci(void);
+ahci_result_t ahci_init(void);
 
 bool ahci_read_disk(uint64_t start_lba, uint32_t sector_count, void* buffer);
 

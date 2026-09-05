@@ -17,6 +17,16 @@ extern spinlock_t scheduler_state_lock;
 
 static void thread_exit(thread_t* thread) {
   thread->status = THREAD_DEAD;
+  thread->exit_code = 0;
+
+  unsigned long flags;
+  process_t* parent_process = thread->parent_process;
+
+  SPIN_LOCK_ACQUIRE(&parent_process->lock, flags);
+
+  parent_process->alive_threads--;
+
+  SPIN_LOCK_RELEASE(&parent_process->lock, flags);
   while (true);
 }
 
@@ -120,6 +130,12 @@ int kthread_create(const char* name, thread_t** thread,
     *thread = new_thread;
   }
 
+  SPIN_LOCK_ACQUIRE(&kernel_process->lock, flags);
+
+  kernel_process->alive_threads++;
+
+  SPIN_LOCK_RELEASE(&kernel_process->lock, flags);
+
   return new_thread->tid;
 }
 
@@ -170,13 +186,13 @@ int kthread_join(thread_t* child_thread) {
 
   while (child_thread->status != THREAD_DEAD) {
     current_thread->status = THREAD_SLEEPING;
-    
+
     // Sleep for 100 ms
     timer_tick_t current_time = timer_get_ticks();
     timer_tick_t wakeup_time = current_time + timer_ms_to_ticks(100);
 
     current_thread->wakeup_time = wakeup_time;
-    
+
     scheduler_yield();
   }
 
@@ -296,6 +312,15 @@ static inline void pthread_exit(int exit_code) {
 
   SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
 
+  SPIN_LOCK_ACQUIRE(&current_thread->parent_process->lock, flags);
+  current_thread->parent_process->alive_threads--;
+
+  if (current_thread->parent_process->alive_threads <= 0) {
+    scheduler_mark_process_as_dead(current_thread->parent_process);
+  }
+
+  SPIN_LOCK_RELEASE(&current_thread->parent_process->lock, flags);
+
   scheduler_yield();
 }
 
@@ -340,6 +365,12 @@ static inline int pthread_create(size_t* tid, void (*entry_point)(void*),
   if (tid != NULL) {
     *tid = new_thread->tid;
   }
+
+  SPIN_LOCK_ACQUIRE(&process->lock, flags);
+
+  process->alive_threads++;
+
+  SPIN_LOCK_RELEASE(&process->lock, flags);
 
   return 0;
 }
@@ -388,7 +419,6 @@ static inline int pthread_join(size_t tid) {
 void sys_pthread_sleep(syscall_frame_t* frame) {
   size_t milliseconds = frame->arg1;
   pthread_sleep(milliseconds);
-  // log_debug("sys_thread_sleep exited\n");
 }
 
 void sys_pthread_exit(syscall_frame_t* frame) {

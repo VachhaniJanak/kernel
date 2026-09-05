@@ -29,6 +29,7 @@ void* mm_get_user_virtual_base(void) {
   return (void*)mm_state.user_virtual_base;
 }
 
+// return virtual address of the current root page table
 void* mm_get_root_table(void) {
   uintptr_t root_table_phys = get_page_table_addr();
   return phys_to_virt((void*)root_table_phys);
@@ -341,4 +342,58 @@ uint64_t mm_get_mmu_flags(mm_flags_t flags) {
   if (flags & MM_FLAG_1GB) mmu_flags |= MMU_HUGE_PAGE;
 
   return mmu_flags;
+}
+
+mm_result_t mm_verify_process_addr(void* virt_addr) {
+  if (virt_addr == NULL) {
+    return MM_ERR_INVALID_ADDRESS;
+  }
+
+  uintptr_t addr = (uintptr_t)virt_addr;
+
+  if (addr <= mm_state.user_virtual_base || addr >= mm_state.user_stack_base) {
+    return MM_ERR_INVALID_ADDRESS;
+  }
+
+  return MM_SUCCESS;
+}
+
+mm_result_t mm_map_io_address(uintptr_t* virt_addr, void* phys_addr) {
+  if (virt_addr == NULL || phys_addr == NULL) {
+    return MM_ERR_INVALID_PARAMETER;
+  }
+
+  const size_t page_size = mm_state.page_size;
+  const void* root_table = phys_to_virt(mm_get_kernel_root_table());
+  const uintptr_t io_virt_addr = (uintptr_t)phys_to_virt(phys_addr);
+
+  uintptr_t paddr_aligned = page_align_down((uintptr_t)phys_addr, page_size);
+  uintptr_t vaddr_aligned = page_align_down(io_virt_addr, page_size);
+
+  const mm_flags_t flags = MM_FLAG_WRITABLE | MM_FLAG_EXE;
+
+  mm_result_t result =
+      map_page(root_table, (void*)vaddr_aligned, (void*)paddr_aligned, flags);
+
+  if (result != MM_SUCCESS) {
+    return result;
+  }
+
+  *virt_addr = (uintptr_t)io_virt_addr;
+  return MM_SUCCESS;
+}
+
+mm_result_t mm_get_current_mapping(void* virt_addr, uintptr_t* phys_addr) {
+  if (virt_addr == NULL || phys_addr == NULL) {
+    return MM_ERR_INVALID_PARAMETER;
+  }
+
+  const void* root_table = mm_get_root_table();
+  mm_result_t result = get_mapping(root_table, virt_addr, phys_addr);
+
+  if (result != MM_SUCCESS) {
+    return result;
+  }
+
+  return MM_SUCCESS;
 }

@@ -17,6 +17,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <tty/tty_output.h>
 #include <utils/log.h>
 #include <utils/utils.h>
 #include <vfs/vfs.h>
@@ -475,6 +476,13 @@ void kprocess_init(process_t* process) {
   process->thread_list_start = NULL;
   process->thread_list_end = NULL;
   process->vma_head = NULL;
+  process->vma_tail = NULL;
+  process->heap_vma = NULL;
+  process->brk = 0;
+  process->mmap_vma = NULL;
+  process->alive_threads = 0;
+
+  spinlock_init(&process->lock);
 }
 
 static bool user_process_init(process_t* process, char* name) {
@@ -498,6 +506,14 @@ static bool user_process_init(process_t* process, char* name) {
   process->thread_list_start = NULL;
   process->thread_list_end = NULL;
   process->vma_head = NULL;
+  process->vma_tail = NULL;
+  process->heap_vma = NULL;
+  process->brk = 0;
+  process->mmap_vma = NULL;
+  process->alive_threads = 0;
+
+  spinlock_init(&process->lock);
+
   return true;
 }
 
@@ -580,6 +596,10 @@ int load_user_process(process_t** process, const char* elf_path, void* arg) {
   mm_result = mm_allocate_pstack(root_table, &stack_base);
 
   if (mm_result != MM_SUCCESS) {
+    scheduler_remove_thread(new_process, main_thread->tid);
+    scheduler_remove_process(new_process->pid);
+    SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
+    vma_free(new_process);
 #ifdef PROCESS_DEBUG
     log_error("Failed to allocate user stacks for main thread, error code: %d",
               mm_result);
@@ -700,6 +720,8 @@ int load_user_process(process_t** process, const char* elf_path, void* arg) {
 #ifdef PROCESS_DEBUG
   vma_print(new_process);
 #endif
+
+  new_process->alive_threads = 1;
 
   SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
 
@@ -911,12 +933,21 @@ void page_fault_isr_handler(struct interrupt_ecframe_s* frame) {
   // handle user space page fault
   if (frame->error_code & MMU_PF_UM_MASK &&
       !(frame->error_code & MMU_PF_PLV_MASK)) {
-    if (faulting_address < USER_VIRTUAL_BASE) {
+    if (faulting_address < (uintptr_t)mm_get_user_virtual_base()) {
+      tty_printf(
+          ANSI_COLOR_BRIGHT_RED
+          "Segmentation fault: Invalid user space address 0x%lx\n" ANSI_RESET,
+          faulting_address);
+      log_error(
+          ANSI_COLOR_BRIGHT_RED
+          "Segmentation fault: Invalid user space address 0x%lx\n" ANSI_RESET,
+          faulting_address);
+      scheduler_terminate_current_process();
+
 #ifdef PAGE_FAULT_DEBUG
       log_error("Segmentation fault: Invalid user space address 0x%lx",
                 faulting_address);
 #endif
-      while (1);
     }
 
     if (handle_user_page_fault(faulting_address)) {
@@ -925,12 +956,20 @@ void page_fault_isr_handler(struct interrupt_ecframe_s* frame) {
 #endif
       return;
     }
+
+    log_debug(ANSI_COLOR_BRIGHT_RED
+              "Failed to handle user page fault at address 0x%lx\n" ANSI_RESET,
+              faulting_address);
+    scheduler_terminate_current_process();
+
 #ifdef PAGE_FAULT_DEBUG
     log_error("Failed to handle user page fault at address 0x%lx",
               faulting_address);
 #endif
   }
 
+  tty_printf("Segmentation fault at address 0x%lx, RIP: 0x%lx",
+             faulting_address, frame->rip);
   log_error("Segmentation fault at address 0x%lx, RIP: 0x%lx", faulting_address,
             frame->rip);
   while (1);
@@ -1127,43 +1166,3 @@ bool vma_find_gap(vma_t* vma_head, bool reverse, uintptr_t size,
 
   return false;
 }
-
-// void double_fault_isr_handler(struct interrupt_ecframe_s* frame) {
-//   UNUSED(frame);
-//   log_print("Double Fault:");
-//   log_print("  RIP: 0x%lx\n", frame->rip);
-//   log_print("  RSP: 0x%lx\n", frame->rsp);
-//   log_print("  RFLAGS: 0x%lx\n", frame->rflags);
-//   log_newline();
-
-//   process_t* process1 = get_process_by_pid(1);
-//   process_t* process2 = get_process_by_pid(2);
-
-//   thread_t* thread1 = get_thread(process1, 1);
-//   thread_t* thread2 = get_thread(process2, 4);
-
-//   log_print("Process 1 (PID: %zu) - Thread 1 (TID: %zu):\n", process1->pid,
-//             thread1->tid);
-
-//   struct scheduler_frame_s* frame1 =
-//       (struct scheduler_frame_s*)thread1->current_stack_ptr;
-//   log_print("  RIP: 0x%lx\n", frame1->rip);
-//   log_print("  RSP: 0x%lx\n", frame1->rsp);
-//   log_print("  RFLAGS: 0x%lx\n", frame1->rflags);
-//   log_print("  CS: 0x%lx\n", frame1->cs);
-//   log_print("  SS: 0x%lx\n", frame1->ss);
-//   log_newline();
-
-//   struct scheduler_frame_s* frame2 =
-//       (struct scheduler_frame_s*)thread2->current_stack_ptr;
-//   log_print("Process 2 (PID: %zu) - Thread 2 (TID: %zu):\n", process2->pid,
-//             thread2->tid);
-//   log_print("  RIP: 0x%lx\n", frame2->rip);
-//   log_print("  RSP: 0x%lx\n", frame2->rsp);
-//   log_print("  RFLAGS: 0x%lx\n", frame2->rflags);
-//   log_print("  CS: 0x%lx\n", frame2->cs);
-//   log_print("  SS: 0x%lx\n", frame2->ss);
-//   log_newline();
-
-//   while (1);
-// }

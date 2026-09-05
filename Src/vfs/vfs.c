@@ -1,4 +1,3 @@
-#include <drivers/screen/screen.h>
 #include <mm/vmm/kheap.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -10,7 +9,8 @@
 bool init_vfs(void) {
   FATFS* FatFs = kmalloc(sizeof(FATFS));
   if (f_mount(FatFs, "", 0) != FR_OK) {
-    kprintf("Error mounting filesystem.\n");
+    log_error("Error mounting filesystem.");
+    kfree(FatFs);
     return false;
   }
   return true;
@@ -21,7 +21,7 @@ bool create_directory(const char* path) {
 
   fr = f_mkdir(path);
   if (fr != FR_OK) {
-    kprintf("Error creating directory '%s' (error=%d)\n", path, fr);
+    log_error("Error creating directory '%s' (error=%d)", path, fr);
     return false;
   }
 
@@ -33,7 +33,7 @@ bool rm_directory(const char* path) {
 
   fr = f_unlink(path);
   if (fr != FR_OK) {
-    kprintf("Error removing directory '%s' (error=%d)\n", path, fr);
+    log_error("Error removing directory '%s' (error=%d)", path, fr);
     return false;
   }
 
@@ -47,7 +47,7 @@ void vfs_list_directory(const char* path) {
 
   res = f_opendir(&dir, path);
   if (res != FR_OK) {
-    kprintf("Unable to open directory '%s' (error=%d)\n", path, res);
+    log_error("Unable to open directory '%s' (error=%d)", path, res);
     return;
   }
 
@@ -55,16 +55,16 @@ void vfs_list_directory(const char* path) {
     res = f_readdir(&dir, &fno);
 
     if (res != FR_OK) {
-      kprintf("Read directory failed (error=%d)\n", res);
+      log_error("Read directory failed (error=%d)", res);
       break;
     }
 
     if (fno.fname[0] == '\0') break;  // End of directory
 
     if (fno.fattrib & AM_DIR) {
-      kprintf("[DIR] %s\n", fno.fname);
+      log_info("[DIR] %s\n", fno.fname);
     } else {
-      kprintf("[FILE] %-20s %lu bytes\n", fno.fname, (unsigned long)fno.fsize);
+      log_info("[FILE] %-20s %lu bytes\n", fno.fname, (unsigned long)fno.fsize);
     }
   }
 

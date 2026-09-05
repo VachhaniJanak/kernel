@@ -107,7 +107,8 @@ target_sources(${CMAKE_PROJECT_NAME}.elf PRIVATE
     Src/drivers/acpi/acpi.c
     Src/drivers/pcie/pcie.c
     Src/drivers/ahci/ahci.c
-    Src/drivers/keyboard/ps.c
+    Src/drivers/keyboard/ps2/keyboard.c
+    Src/drivers/keyboard/ps2/scancode_set2.c
 
     Src/mm/mm.c
     Src/mm/debug.c
@@ -124,8 +125,8 @@ target_sources(${CMAKE_PROJECT_NAME}.elf PRIVATE
     Src/mm/vmm/rbtree.c
     Src/mm/vmm/kheap.c
 
-    Src/consolefont/fonts/terminus24b.o
-    Src/consolefont/psf.c
+    Src/consolefont/fonts/terminus28b.o
+    Src/consolefont/font.c
 
     Src/vfs/vfs.c
     
@@ -143,8 +144,18 @@ target_sources(${CMAKE_PROJECT_NAME}.elf PRIVATE
     Src/process/elf.c
     Src/process/process.c
     Src/process/thread.c
+    Src/process/cleanup.c
+    Src/process/waitqueue.c
 
     Src/syscall/syscall.c
+
+    Src/input/keyboard/keyboard.c
+    Src/input/keyboard/layout_us_qwerty.c
+    Src/input/input.c
+
+    Src/tty/tty.c
+    Src/tty/tty_input.c
+    Src/tty/tty_output.c
 )
 
 

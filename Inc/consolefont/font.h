@@ -1,7 +1,7 @@
 #pragma once
 
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 
 typedef struct {
   uint16_t magic;
@@ -20,10 +20,14 @@ typedef struct {
   uint32_t width;
 } psf2_header_t;
 
-void init_psf_font(void);
+void consolefont_init(void);
 
-uint8_t* get_psf_glyphs(char glyph);
+uint8_t* consolefont_get_glyphs(char glyph);
 
-size_t get_psf_glyph_width(void);
+uint8_t* consolefont_get_glyphs_ptr(void);
 
-size_t get_psf_glyph_height(void);
+size_t consolefont_get_bytes_per_glyph(void);
+
+size_t consolefont_get_glyph_width(void);
+
+size_t consolefont_get_glyph_height(void);

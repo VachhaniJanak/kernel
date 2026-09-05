@@ -33,21 +33,25 @@
 #define PS2_SCANCODE_SET_3_VAL 0x3f
 
 typedef enum {
-  KBD_STATE_NORMAL,
-  KBD_STATE_BREAK,
-  KBD_STATE_EXTENDED,
-  KBD_STATE_EXTENDED_BREAK,
-  KBD_STATE_PAUSE
-} keyboard_state_t;
+  PS2_KBD_STATE_NORMAL,
+  PS2_KBD_STATE_BREAK,
+  PS2_KBD_STATE_EXTENDED,
+  PS2_KBD_STATE_EXTENDED_BREAK,
+  PS2_KBD_STATE_PAUSE
+} ps2_kbd_sc_state_t;
 
-typedef enum { KEY_EVENT_PRESS, KEY_EVENT_RELEASE } key_action_t;
-
-typedef struct {
-  bool extended;
-  key_action_t action;
-  uint8_t scancode;
-} keyboard_event_t;
+struct ps2_kbd_state_s {
+  ps2_kbd_sc_state_t state;
+  bool keys_pressed[256];
+  bool toggle_caps;
+  bool toggle_num;
+  bool toggle_scroll;
+  bool left_shift_pressed;
+  bool right_shift_pressed;
+  bool left_ctrl_pressed;
+  bool right_ctrl_pressed;
+  bool left_alt_pressed;
+  bool right_alt_pressed;
+};
 
 void ps2_init(void);
-
-bool ps2_get_key_event(keyboard_event_t* event);

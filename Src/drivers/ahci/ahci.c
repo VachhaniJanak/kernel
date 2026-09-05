@@ -8,12 +8,27 @@
 #include <utils/log.h>
 #include <utils/utils.h>
 
+// #define AHCI_DEBUG
+
+#ifdef AHCI_DEBUG
+#define ahci_log_print(fmt, ...) log_print(fmt, ##__VA_ARGS__)
+#define ahci_log_error(fmt, ...) (log_error(fmt, ##__VA_ARGS__))
+#define ahci_log_debug(fmt, ...) (log_debug(fmt, ##__VA_ARGS__))
+#else
+#define ahci_log_print(fmt, ...) ((void)0)
+#define ahci_log_error(fmt, ...) ((void)0)
+#define ahci_log_debug(fmt, ...) ((void)0)
+#endif
+
+#define AHCI_SECTOR_SIZE 512
+
 #define AHCI_CLASS_CODE 0x01
 #define AHCI_SUBCLASS 0x06
 #define AHCI_PROG_IF 0x01
 
 #define HBA_CLB_SIZE 1024
 #define HBA_FIS_SIZE 256
+#define HBA_CMD_TBL_SIZE 256
 
 #define SATA_SIG_ATA 0x00000101    // SATA drive
 #define SATA_SIG_ATAPI 0xEB140101  // SATAPI drive
@@ -40,23 +55,30 @@ typedef enum {
   AHCI_DEV_SATAPI = 4
 } ahci_dev_type_e;
 
-static void* clb_vaddr = NULL;
-static void* clb_paddr = NULL;
-static void* fis_vaddr = NULL;
-static void* fis_paddr = NULL;
-static void* cmd_table_vaddr = NULL;
-static void* cmd_table_paddr = NULL;
-static hba_port_t* sata_port = NULL;
+typedef struct {
+  void* clb_vaddr;
+  void* clb_paddr;
+  void* fis_vaddr;
+  void* fis_paddr;
+  void* cmd_table_vaddr;
+  void* cmd_table_paddr;
+} ahci_sata_state_t;
+
+typedef struct {
+  hba_mem_t* hba_mem;
+  ahci_sata_state_t sata_state[32];
+  int sata_port_index;
+} ahci_state_t;
 
 volatile bool is_transfer_complete = false;
+static ahci_state_t ahci_state = {0};
 
 void ahci_irq_isr_handler(void) {
-  is_transfer_complete = true;
-  sata_port->interrupt_status = (uint32_t)-1;  // Clear interrupt status
+  // is_transfer_complete = true;
+  // ahci_state.hba_mem->interrupt_status =
+  // (uint32_t)-1;  // Clear interrupt status
   lapic_eoi();
-#ifdef AHCI_DEBUG
-  LOG_DEBUG("AHCI interrupt received, transfer complete.\n");
-#endif
+  ahci_log_debug("AHCI interrupt received, transfer complete.\n");
 }
 
 static inline size_t num_command_slots(hba_mem_t* hba_mem) {
@@ -210,157 +232,224 @@ static inline bool is_port_ready(hba_port_t* port) {
   return (port->s_status & 0x0F) == HBA_PORT_IPM_ACTIVE;
 }
 
-void sata_init(hba_port_t* port, size_t num_slots) {
+ahci_result_t sata_init(size_t sata_port_index, size_t num_slots) {
+  hba_port_t* port = &ahci_state.hba_mem->ports[sata_port_index];
+  ahci_sata_state_t* sata_state = &ahci_state.sata_state[sata_port_index];
+
+  ahci_log_print("Initializing SATA port: %zu\n", sata_port_index);
+  ahci_log_print("  Port command register: 0x%08X\n", port->command);
+  ahci_log_print("  Port interrupt status: 0x%08X\n", port->interrupt_status);
+  ahci_log_print("  Port signature: 0x%08X\n", port->signature);
+  ahci_log_print("  Port SATA status: 0x%08X\n", port->s_status);
+  ahci_log_print("  Port SATA control: 0x%08X\n", port->s_control);
+  ahci_log_print("  Port SATA error: 0x%08X\n", port->s_error);
+  ahci_log_print("  Port SATA active: 0x%08X\n", port->s_active);
+  ahci_log_print("  Port command issue: 0x%08X\n", port->command_issue);
+  ahci_log_print("  Port SATA notification: 0x%08X\n", port->s_notification);
+  ahci_log_print("  Port FIS-based switch control: 0x%08X\n", port->fbs);
+
   stop_cmd(port);
 
-  clb_vaddr = kmalloc(HBA_CLB_SIZE);
-  clb_paddr = kmalloc_phys_addr(clb_vaddr);
+  sata_state->clb_vaddr = kmalloc(HBA_CLB_SIZE);
 
-  if (clb_vaddr == NULL || clb_paddr == NULL) {
-    LOG_ERROR("Failed to allocate memory for command list buffer.");
-    return;
+  if (sata_state->clb_vaddr == NULL) {
+    ahci_log_error("Failed to allocate memory for command list buffer.");
+    return AHCI_ERR_OUT_OF_MEMORY;
   }
 
-  kmemset(clb_vaddr, 0, HBA_CLB_SIZE);
+  mm_result_t mm_result;
+  mm_result = mm_get_current_mapping(sata_state->clb_vaddr,
+                                     (uintptr_t*)&sata_state->clb_paddr);
 
-  fis_vaddr = kmalloc(HBA_FIS_SIZE);
-  fis_paddr = kmalloc_phys_addr(fis_vaddr);
-
-  if (fis_vaddr == NULL || fis_paddr == NULL) {
-    LOG_ERROR("Failed to allocate memory for FIS buffer.");
-    return;
+  if (mm_result != MM_SUCCESS) {
+    ahci_log_error("Failed to get phys address for clb, result: %d", mm_result);
+    return AHCI_ERR_MEMORY_MAPPING;
   }
 
-  kmemset(fis_vaddr, 0, HBA_FIS_SIZE);
+  sata_state->fis_vaddr = kmalloc(HBA_FIS_SIZE);
 
-  cmd_table_vaddr = kmalloc(256);
-  cmd_table_paddr = kmalloc_phys_addr(cmd_table_vaddr);
-
-  if (cmd_table_vaddr == NULL || cmd_table_paddr == NULL) {
-    LOG_ERROR("Failed to allocate memory for command table.");
-    return;
+  if (sata_state->fis_vaddr == NULL) {
+    ahci_log_error("Failed to allocate memory for FIS buffer.");
+    return AHCI_ERR_OUT_OF_MEMORY;
   }
 
-  kmemset(cmd_table_vaddr, 0, 256);
+  mm_result = mm_get_current_mapping(sata_state->fis_vaddr,
+                                     (uintptr_t*)&sata_state->fis_paddr);
 
-  port->clb = (uint32_t)(uintptr_t)clb_paddr;
-  port->clbu = (uint32_t)((uintptr_t)clb_paddr >> 32);
-  port->fb = (uint32_t)(uintptr_t)fis_paddr;
-  port->fbu = (uint32_t)((uintptr_t)fis_paddr >> 32);
+  if (mm_result != MM_SUCCESS) {
+    ahci_log_error("Failed to get phys address for FIS buffer, result: %d",
+                   mm_result);
+    return AHCI_ERR_MEMORY_MAPPING;
+  }
 
-  hba_cmd_header_t* cmd_header = clb_vaddr;
+  sata_state->cmd_table_vaddr = kmalloc(HBA_CMD_TBL_SIZE);
+
+  if (sata_state->cmd_table_vaddr == NULL) {
+    ahci_log_error("Failed to allocate memory for command table.");
+    return AHCI_ERR_OUT_OF_MEMORY;
+  }
+
+  mm_result = mm_get_current_mapping(sata_state->cmd_table_vaddr,
+                                     (uintptr_t*)&sata_state->cmd_table_paddr);
+
+  if (mm_result != MM_SUCCESS) {
+    ahci_log_error("Failed to get phys addr for command table, result: %d",
+                   mm_result);
+    return AHCI_ERR_MEMORY_MAPPING;
+  }
+
+  kmemset(sata_state->clb_vaddr, 0, HBA_CLB_SIZE);
+  kmemset(sata_state->fis_vaddr, 0, HBA_FIS_SIZE);
+  kmemset(sata_state->cmd_table_vaddr, 0, HBA_CMD_TBL_SIZE);
+
+#ifdef AHCI_DEBUG
+  ahci_log_print("  Command list buffer virtual address: 0x%p\n",
+                 sata_state->clb_vaddr);
+  ahci_log_print("  Command list buffer physical address: 0x%p\n",
+                 (void*)sata_state->clb_paddr);
+  ahci_log_print("  FIS buffer virtual address: 0x%p\n", sata_state->fis_vaddr);
+  ahci_log_print("  FIS buffer physical address: 0x%p\n",
+                 (void*)sata_state->fis_paddr);
+  ahci_log_print("  Command table virtual address: 0x%p\n",
+                 sata_state->cmd_table_vaddr);
+  ahci_log_print("  Command table physical address: 0x%p\n",
+                 (void*)sata_state->cmd_table_paddr);
+  ahci_log_print("  Number of command slots: %zu\n", num_slots);
+#endif
+
+  port->clb = (uint32_t)(uintptr_t)sata_state->clb_paddr;
+  port->clbu = (uint32_t)((uintptr_t)sata_state->clb_paddr >> 32);
+  port->fb = (uint32_t)(uintptr_t)sata_state->fis_paddr;
+  port->fbu = (uint32_t)((uintptr_t)sata_state->fis_paddr >> 32);
+
+  hba_cmd_header_t* cmd_header = sata_state->clb_vaddr;
 
   for (size_t i = 0; i < num_slots; i++) {
     hba_cmd_header_t* t_cmd_header = &cmd_header[i];
     t_cmd_header->prdtl = 8;  // Set the PRDT length to 8 entries
-    t_cmd_header->ctba = (uint32_t)(uintptr_t)cmd_table_paddr;
-    t_cmd_header->ctbau = (uint32_t)((uintptr_t)cmd_table_paddr >> 32);
+    t_cmd_header->ctba = (uint32_t)(uintptr_t)sata_state->cmd_table_paddr;
+    t_cmd_header->ctbau =
+        (uint32_t)((uintptr_t)sata_state->cmd_table_paddr >> 32);
   }
 
   start_cmd(port);
+
+  return AHCI_SUCCESS;
 }
 
-void init_ahci(void) {
+ahci_result_t ahci_init(void) {
+  ahci_log_print("Initializing AHCI controller: \n");
+
   pci_config_header_t* config_space = NULL;
   config_space =
       get_pci_cfg_space(AHCI_CLASS_CODE, AHCI_SUBCLASS, AHCI_PROG_IF);
 
   if (config_space == NULL) {
-    LOG_ERROR("No AHCI controller found.");
-    return;
+    ahci_log_error("No AHCI controller found.");
+    return AHCI_ERR_NO_DEVICE;
   }
 
   uint32_t bar5 = config_space->bar5;
 
+  ahci_log_print("  BAR5: 0x%08X\n", bar5);
+
   if (is_pci_bar_io_space(bar5)) {
-    LOG_ERROR("BAR5 is I/O space.\n");
-    return;
+    ahci_log_error("BAR5 is I/O space.\n");
+    return AHCI_ERR_BAR;
   }
 
   if (is_pci_bar_64bit(bar5)) {
-    LOG_ERROR("BAR5 is 64-bit.\n");
-    return;
+    ahci_log_error("BAR5 is 64-bit.\n");
+    return AHCI_ERR_BAR;
   }
 
   void* bar5_addr = (void*)(uintptr_t)get_pci_bar_address(bar5);
-
   config_space->bar5 = 0xFFFFFFFF;
+
   uint32_t bar5_size = config_space->bar5;
   config_space->bar5 = bar5;
 
   bar5_size &= 0xFFFFFFF0;
   bar5_size = ~bar5_size + 1;  // Two's complement to get size
 
-#ifdef AHCI_DEBUG
-  LOG_DEBUG("BAR5 Address: 0x%p\n", bar5_addr);
-  LOG_DEBUG("BAR5 Size: 0x%08X\n", bar5_size);
-#endif
+  ahci_log_print("  BAR5 size: 0x%08X\n", bar5_size);
 
   pci_mem_space_enable(config_space);
   pci_bus_master_enable(config_space);
 
-  void* hba_ptr = phys_to_virt(bar5_addr);
+  uintptr_t hba_ptr = 0;
+  mm_result_t result = mm_map_io_address(&hba_ptr, bar5_addr);
 
-  // map one 4k page for the AHCI BAR5
-  if (!mmap(hba_ptr, bar5_addr)) {
-    LOG_ERROR("Failed to map AHCI BAR5.");
-    return;
+  if (result != MM_SUCCESS) {
+    ahci_log_error("Failed to map BAR5, result: %d", result);
+    return AHCI_ERR_MEMORY_MAPPING;
   }
 
+  ahci_log_print("  BAR5 mapped to virtual address: 0x%p\n", (void*)hba_ptr);
+  ahci_log_print("  HBA memory address: 0x%p\n", (void*)hba_ptr);
   set_pci_msi(config_space, 40, 0xFEE00000);
+
   hba_mem_t* hba_mem = (hba_mem_t*)hba_ptr;
 
   // Reset the AHCI controller
   ahci_host_reset(hba_mem);
-#ifdef AHCI_DEBUG
-  LOG_DEBUG("AHCI controller reset completed.\n");
-#endif
+  ahci_log_print("  Controller reset completed.\n");
+
   ahci_enable_interrupts(hba_mem);
-#ifdef AHCI_DEBUG
-  LOG_DEBUG("AHCI interrupts enabled.\n");
-#endif
+  ahci_log_print("  Interrupts enabled.\n");
+
   ahci_enable(hba_mem);
-#ifdef AHCI_DEBUG
-  LOG_DEBUG("AHCI controller enabled.\n");
-#endif
+  ahci_log_print("  Controller enabled.\n");
 
   size_t sata_port_index = get_device_port(hba_mem, AHCI_DEV_SATA);
 
   if (sata_port_index != SIZE_MAX) {
-#ifdef AHCI_DEBUG
-    LOG_DEBUG("SATA device found at port %zu\n", sata_port_index);
-#endif
+    ahci_log_print("  SATA device found at port %zu\n", sata_port_index);
   } else {
-    LOG_ERROR("No SATA device found.\n");
-    return;
+    ahci_log_error("No SATA device found.\n");
+    return AHCI_ERR_SATA_NOT_FOUND;
   }
 
-  sata_port = &hba_mem->ports[sata_port_index];
+  ahci_state.hba_mem = hba_mem;
+  ahci_state.sata_port_index = sata_port_index;
 
-#ifdef AHCI_DEBUG
-  LOG_DEBUG("AHCI initialization completed.\n");
-#endif
-  sata_init(sata_port, num_command_slots(hba_mem));
+  ahci_log_print("  Initialization completed.\n");
+
+  const size_t num_slots = num_command_slots(hba_mem);
+  ahci_result_t sata_init_result = sata_init(sata_port_index, num_slots);
+
+  if (sata_init_result != AHCI_SUCCESS) {
+    ahci_log_error("Failed to initialize SATA port, result: %d",
+                   sata_init_result);
+    return sata_init_result;
+  }
+
+  return AHCI_SUCCESS;
 }
 
-bool ahci_read_disk(uint64_t start_lba, uint32_t sector_count, void* buffer) {
+static inline bool _ahci_read_disk(size_t sata_port_index, uint64_t start_lba,
+                                   uint32_t sector_count, void* buffer) {
+  hba_port_t* sata_port = &ahci_state.hba_mem->ports[sata_port_index];
+  ahci_sata_state_t* sata_state = &ahci_state.sata_state[sata_port_index];
+
   size_t slot = 0;
   sata_port->interrupt_status = (uint32_t)-1;
 
-  hba_cmd_header_t* cmd_header_ptr = clb_vaddr;
+  hba_cmd_header_t* cmd_header_ptr = sata_state->clb_vaddr;
   hba_cmd_header_t* first_cmd_header = &cmd_header_ptr[slot];
 
   first_cmd_header->cfl = sizeof(fis_reg_h2d_t) / sizeof(uint32_t);
   first_cmd_header->w = 0;      // Read operation
   first_cmd_header->prdtl = 1;  // One PRDT entry
 
-  hba_cmd_tbl_t* cmd_table_ptr = (hba_cmd_tbl_t*)cmd_table_vaddr;
+  hba_cmd_tbl_t* cmd_table_ptr = (hba_cmd_tbl_t*)sata_state->cmd_table_vaddr;
 
   cmd_table_ptr->prdt_entry[0].dba = (uint32_t)(uintptr_t)buffer;
   cmd_table_ptr->prdt_entry[0].dbau = (uint32_t)((uintptr_t)buffer >> 32);
 
-  // each sector is 512 bytes, so the total bytes to read is sector_count * 512
-  size_t bytes_to_read = sector_count * 512;
+  // each sector is 512 bytes, so the total bytes to read is sector_count *
+  // 512
+  size_t bytes_to_read = sector_count * AHCI_SECTOR_SIZE;
   cmd_table_ptr->prdt_entry[0].dbc = bytes_to_read - 1;
   cmd_table_ptr->prdt_entry[0].i = 1;  // Interrupt on completion
 
@@ -382,33 +471,27 @@ bool ahci_read_disk(uint64_t start_lba, uint32_t sector_count, void* buffer) {
   cmdfis->countl = sector_count & 0xFF;         // Count register, 7:0
   cmdfis->counth = (sector_count >> 8) & 0xFF;  // Count register, 15:8
 
-#ifdef AHCI_DEBUG
-  LOG_DEBUG("Issuing read command to SATA device...\n");
-#endif
+  ahci_log_debug("Issuing read command to SATA device...\n");
 
-  // The below loop waits until the port is no longer busy before issuing a new
-  // command
+  // The below loop waits until the port is no longer busy before issuing a
+  // new command
   size_t spin = 0;
   while ((sata_port->tfd & (ATA_DEV_BUSY | ATA_DEV_DRQ)) && spin < 1000000) {
     spin++;
   }
 
   if (spin == 1000000) {
-    LOG_ERROR("Port is hung\n");
+    ahci_log_error("Port is hung\n");
     return false;
   }
 
-#ifdef AHCI_DEBUG
-  LOG_DEBUG("Port is ready, issuing command...\n");
-#endif
+  ahci_log_debug("Port is ready, issuing command...\n");
 
   sata_port->interrupt_enable = (1 << slot);  // Enable interrupt on completion
   sata_port->command_issue = (1 << slot);     // Issue command
   sata_port->command_issue = (1 << slot);     // Issue command
 
-#ifdef AHCI_DEBUG
-  LOG_DEBUG("Command issued, waiting for completion...\n");
-#endif
+  ahci_log_debug("Command issued, waiting for completion...\n");
 
   // Wait for completion
   while (1) {
@@ -419,42 +502,45 @@ bool ahci_read_disk(uint64_t start_lba, uint32_t sector_count, void* buffer) {
     }
 
     if (sata_port->interrupt_status & HBA_PxIS_TFES) {
-      LOG_ERROR("Read disk error\n");
+      ahci_log_error("Read disk error\n");
       return false;
     }
   }
 
-#ifdef AHCI_DEBUG
-  LOG_DEBUG("Read command completed successfully.\n");
-#endif
+  ahci_log_debug("Read command completed successfully.\n");
 
   // Check again
   if (sata_port->interrupt_status & HBA_PxIS_TFES) {
-    LOG_ERROR("Read disk error\n");
+    ahci_log_error("Read disk error\n");
     return false;
   }
 
   return true;
 }
 
-bool ahci_write_disk(uint64_t start_lba, uint32_t sector_count, void* buffer) {
+static inline bool _ahci_write_disk(size_t sata_port_index, uint64_t start_lba,
+                                    uint32_t sector_count, void* buffer) {
+  hba_port_t* sata_port = &ahci_state.hba_mem->ports[sata_port_index];
+  ahci_sata_state_t* sata_state = &ahci_state.sata_state[sata_port_index];
+
   size_t slot = 0;
   sata_port->interrupt_status = (uint32_t)-1;
 
-  hba_cmd_header_t* cmd_header_ptr = clb_vaddr;
+  hba_cmd_header_t* cmd_header_ptr = sata_state->clb_vaddr;
   hba_cmd_header_t* first_cmd_header = &cmd_header_ptr[slot];
 
   first_cmd_header->cfl = sizeof(fis_reg_h2d_t) / sizeof(uint32_t);
   first_cmd_header->w = 1;      // Write operation
   first_cmd_header->prdtl = 1;  // One PRDT entry
 
-  hba_cmd_tbl_t* cmd_table_ptr = (hba_cmd_tbl_t*)cmd_table_vaddr;
+  hba_cmd_tbl_t* cmd_table_ptr = (hba_cmd_tbl_t*)sata_state->cmd_table_vaddr;
 
   cmd_table_ptr->prdt_entry[0].dba = (uint32_t)(uintptr_t)buffer;
   cmd_table_ptr->prdt_entry[0].dbau = (uint32_t)((uintptr_t)buffer >> 32);
 
-  // each sector is 512 bytes, so the total bytes to read is sector_count * 512
-  size_t bytes_to_read = sector_count * 512;
+  // each sector is 512 bytes, so the total bytes to read is sector_count *
+  // 512
+  size_t bytes_to_read = sector_count * AHCI_SECTOR_SIZE;
   cmd_table_ptr->prdt_entry[0].dbc = bytes_to_read - 1;
   cmd_table_ptr->prdt_entry[0].i = 1;  // Interrupt on completion
 
@@ -476,33 +562,27 @@ bool ahci_write_disk(uint64_t start_lba, uint32_t sector_count, void* buffer) {
   cmdfis->countl = sector_count & 0xFF;         // Count register, 7:0
   cmdfis->counth = (sector_count >> 8) & 0xFF;  // Count register, 15:8
 
-#ifdef AHCI_DEBUG
-  LOG_DEBUG("Issuing write command to SATA device...\n");
-#endif
+  ahci_log_debug("Issuing write command to SATA device...\n");
 
-  // The below loop waits until the port is no longer busy before issuing a new
-  // command
+  // The below loop waits until the port is no longer busy before issuing a
+  // new command
   size_t spin = 0;
   while ((sata_port->tfd & (ATA_DEV_BUSY | ATA_DEV_DRQ)) && spin < 1000000) {
     spin++;
   }
 
   if (spin == 1000000) {
-    LOG_ERROR("Port is hung\n");
+    ahci_log_error("Port is hung\n");
     return false;
   }
 
-#ifdef AHCI_DEBUG
-  LOG_DEBUG("Port is ready, issuing command...\n");
-#endif
+  ahci_log_debug("Port is ready, issuing command...\n");
 
   sata_port->interrupt_enable = (1 << slot);  // Enable interrupt on completion
   sata_port->command_issue = (1 << slot);     // Issue command
   sata_port->command_issue = (1 << slot);     // Issue command
 
-#ifdef AHCI_DEBUG
-  LOG_DEBUG("Command issued, waiting for completion...\n");
-#endif
+  ahci_log_debug("Command issued, waiting for completion...\n");
 
   // Wait for completion
   while (1) {
@@ -513,20 +593,30 @@ bool ahci_write_disk(uint64_t start_lba, uint32_t sector_count, void* buffer) {
     }
 
     if (sata_port->interrupt_status & HBA_PxIS_TFES) {
-      LOG_ERROR("Write disk error\n");
+      ahci_log_error("Write disk error\n");
       return false;
     }
   }
 
-#ifdef AHCI_DEBUG
-  LOG_DEBUG("Write command completed successfully.\n");
-#endif
+  ahci_log_debug("Write command completed successfully.\n");
 
   // Check again
   if (sata_port->interrupt_status & HBA_PxIS_TFES) {
-    LOG_ERROR("Write disk error\n");
+    ahci_log_error("Write disk error\n");
     return false;
   }
 
   return true;  // Placeholder for future implementation
+}
+
+bool ahci_read_disk(uint64_t start_lba, uint32_t sector_count, void* buffer) {
+  const size_t index = ahci_state.sata_port_index;
+  const bool result = _ahci_read_disk(index, start_lba, sector_count, buffer);
+  return result;
+}
+
+bool ahci_write_disk(uint64_t start_lba, uint32_t sector_count, void* buffer) {
+  const size_t index = ahci_state.sata_port_index;
+  const bool result = _ahci_write_disk(index, start_lba, sector_count, buffer);
+  return result;
 }

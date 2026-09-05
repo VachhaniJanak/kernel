@@ -132,3 +132,9 @@ mm_result_t mm_free_kstack(void* root_table, uintptr_t stack_base);
 mm_result_t mm_allocate_pstack(void* root_table, uintptr_t* stack_base);
 
 mm_result_t mm_free_pstack(void* root_table, uintptr_t stack_base);
+
+mm_result_t mm_verify_process_addr(void* virt_addr);
+
+mm_result_t mm_map_io_address(uintptr_t* virt_addr, void* phys_addr);
+
+mm_result_t mm_get_current_mapping(void* virt_addr, uintptr_t* phys_addr);

@@ -2,8 +2,6 @@
 
 #include <stdint.h>
 
-#include "scheduler.h"
-
 #define SPIN_LOCK_ACQUIRE(lock_ptr, flags_var) \
   do {                                         \
     (flags_var) = spinlock_acquire(lock_ptr);  \
@@ -34,7 +32,7 @@ typedef struct {
 
 typedef struct {
   spinlock_t internal_lock;  // Protects the counter and wait queue
-  int count;        // The number of available resources/signals
+  int count;                 // The number of available resources/signals
 
   // A linked list of sleeping threads
   wait_list_node_t* wait_queue_head;

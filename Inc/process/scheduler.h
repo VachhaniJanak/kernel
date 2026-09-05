@@ -5,6 +5,8 @@
 #include <stdint.h>
 #include <vfs/vfs.h>
 
+#include "locks.h"
+
 #define PROCESS_NAME_LEN 32
 #define THREAD_NAME_LEN 32
 
@@ -59,7 +61,9 @@ typedef struct thread_s {
   timer_tick_t wakeup_time;
   struct thread_s* next;
   int exit_code;
-  gs_state_t gs_state;  // thread is in user or kernel mode
+  gs_state_t gs_state;               // thread is in user or kernel mode
+  struct process_s* parent_process;  // pointer to the parent process
+  struct thread_s* next_waiting;     // next thread in the wait queue
 } thread_t;
 
 typedef struct process_s {
@@ -74,6 +78,9 @@ typedef struct process_s {
   uintptr_t brk;
   struct vma_s* mmap_vma;
   struct process_s* next;
+  int alive_threads;  // Number of threads that are not dead in this process
+  spinlock_t lock;    // Lock for synchronizing access to the process structure
+  
 } process_t;
 
 struct scheduler_state_s {
@@ -134,3 +141,9 @@ bool scheduler_remove_thread(process_t* process, size_t tid);
 thread_t* scheduler_get_thread(process_t* process, size_t tid);
 
 bool scheduler_remove_process(size_t pid);
+
+void scheduler_terminate_process(process_t* process);
+
+void scheduler_terminate_current_process(void);
+
+void scheduler_mark_process_as_dead(process_t* process);

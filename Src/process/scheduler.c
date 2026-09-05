@@ -5,12 +5,12 @@
 #include <arch/x86_64/stack.h>
 #include <arch/x86_64/timer.h>
 #include <arch/x86_64/tss.h>
-#include <drivers/screen/screen.h>
 #include <kernel.h>
 #include <mm/mm.h>
 #include <mm/vmm/kheap.h>
 #include <mm/vmm/vmm.h>
 #include <platform/attributes.h>
+#include <process/cleanup.h>
 #include <process/locks.h>
 #include <process/process.h>
 #include <process/scheduler.h>
@@ -19,6 +19,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <syscall/syscall.h>
+#include <tty/tty.h>
 #include <utils/log.h>
 #include <utils/utils.h>
 #include <vfs/vfs.h>
@@ -164,6 +165,7 @@ thread_t* scheduler_add_thread(process_t* process) {
     }
 
     thread->tid = scheduler_state.next_tid++;
+    thread->parent_process = current_process;
     thread->next = NULL;
 
     current_process->thread_list_start = thread;
@@ -183,6 +185,7 @@ thread_t* scheduler_add_thread(process_t* process) {
   current_thread->next = new_thread;
 
   new_thread->tid = scheduler_state.next_tid++;
+  new_thread->parent_process = current_process;
   new_thread->next = NULL;
 
   current_process->thread_list_end = new_thread;
@@ -415,7 +418,7 @@ void test_thread1(void* arg) {
 
   while (true) {
     log_print("Thread 1: Counter = %zu\n", counter++);
-    kthread_sleep(6000);
+    kthread_sleep(20000);
   }
 }
 
@@ -426,7 +429,7 @@ void test_thread2(void* arg) {
 
   while (true) {
     log_print("Thread 2: Counter = %zu\n", counter++);
-    kthread_sleep(8000);
+    kthread_sleep(10000);
   }
 }
 
@@ -487,12 +490,15 @@ void scheduler_init(void) {
 
   SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
 
-  // Create test threads
-  thread_t* thread1;
-  kthread_create("test_thread1", &thread1, test_thread1, NULL);
+  tty_init();
+  cleanup_init();
 
-  thread_t* thread2;
-  kthread_create("test_thread2", &thread2, test_thread2, NULL);
+  // Create test threads
+  // thread_t* thread1;
+  // kthread_create("test_thread1", &thread1, test_thread1, NULL);
+
+  // thread_t* thread2;
+  // kthread_create("test_thread2", &thread2, test_thread2, NULL);
 
   foo();
 
@@ -502,4 +508,50 @@ void scheduler_init(void) {
 
   // switch to the first thread
   idle(NULL);
+}
+
+void scheduler_terminate_process(process_t* process) {
+  if (process == NULL) {
+    return;
+  }
+
+  unsigned long flags;
+  SPIN_LOCK_ACQUIRE(&process->lock, flags);
+
+  // Mark all threads of the process as DEAD
+  thread_t* current_thread = process->thread_list_start;
+
+  while (current_thread != NULL) {
+    current_thread->status = THREAD_DEAD;
+    current_thread = current_thread->next;
+  }
+
+  process->alive_threads = 0;
+
+  SPIN_LOCK_RELEASE(&process->lock, flags);
+
+  // Add the process to the cleanup queue for reaping
+  cleanup_add_process(process);
+
+  // Yield to allow the scheduler to switch to another thread
+  scheduler_yield();
+}
+
+void scheduler_terminate_current_process(void) {
+  unsigned long flags;
+  SPIN_LOCK_ACQUIRE(&scheduler_state_lock, flags);
+
+  process_t* current_process = scheduler_state.current_process;
+
+  SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
+
+  if (current_process == NULL) {
+    return;
+  }
+
+  scheduler_terminate_process(current_process);
+}
+
+void scheduler_mark_process_as_dead(process_t* process) {
+  cleanup_add_process(process);
 }
