@@ -11,7 +11,7 @@
 #include <utils/log.h>
 #include <utils/utils.h>
 
-#define TTY_INPUT_DEBUG
+// #define TTY_INPUT_DEBUG
 
 #define LINE_BUFFER_SIZE 256
 #define LINE_BUFFER_QUEUE_SIZE 1024

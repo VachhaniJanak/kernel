@@ -154,7 +154,3 @@ typedef struct __attribute__((packed)) {
 } fis_reg_h2d_t;
 
 ahci_result_t ahci_init(void);
-
-bool ahci_read_disk(uint64_t start_lba, uint32_t sector_count, void* buffer);
-
-bool ahci_write_disk(uint64_t start_lba, uint32_t sector_count, void* buffer);

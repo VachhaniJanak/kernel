@@ -128,17 +128,6 @@ target_sources(${CMAKE_PROJECT_NAME}.elf PRIVATE
     Src/consolefont/fonts/terminus28b.o
     Src/consolefont/font.c
 
-    Src/vfs/vfs.c
-    
-    Src/vfs/fat/gpt.c
-    Src/vfs/fat/utils.c
-    Src/vfs/fat/storage.c
-
-    Src/vfs/fat/diskio.c
-    Src/vfs/fat/ff.c
-    Src/vfs/fat/ffsystem.c
-    Src/vfs/fat/ffunicode.c
-
     Src/process/scheduler.c
     Src/process/locks.c
     Src/process/elf.c
@@ -156,6 +145,19 @@ target_sources(${CMAKE_PROJECT_NAME}.elf PRIVATE
     Src/tty/tty.c
     Src/tty/tty_input.c
     Src/tty/tty_output.c
+
+    Src/fs/fs.c
+    Src/fs/utils.c
+    Src/fs/tmpfs/tmpfs.c
+    Src/fs/devfs/devfs.c
+    Src/fs/fat/fat32.c
+    Src/fs/prt/gpt.c
+
+    Src/libs/string.c
+
+    Src/device/device.c
+    Src/device/block.c
+    Src/device/char.c
 )
 
 

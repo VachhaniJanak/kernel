@@ -1,6 +1,9 @@
 #include <arch/x86_64/apic.h>
+#include <device/block.h>
+#include <device/device.h>
 #include <drivers/ahci/ahci.h>
 #include <drivers/pcie/pcie.h>
+#include <libs/string.h>
 #include <mm/mm.h>
 #include <mm/vmm/kheap.h>
 #include <stddef.h>
@@ -62,13 +65,25 @@ typedef struct {
   void* fis_paddr;
   void* cmd_table_vaddr;
   void* cmd_table_paddr;
+
+  uint32_t sata_port_index;
+  uint32_t num_slots;
 } ahci_sata_state_t;
 
 typedef struct {
   hba_mem_t* hba_mem;
-  ahci_sata_state_t sata_state[32];
-  int sata_port_index;
 } ahci_state_t;
+
+static int ahci_write_disk(struct block_device* dev, const void* buffer,
+                           size_t start_lba, size_t sector_count);
+
+static int ahci_read_disk(struct block_device* dev, void* buffer,
+                          size_t start_lba, size_t sector_count);
+
+static struct block_device_operations ahci_block_ops = {
+    .read_sectors = ahci_read_disk,
+    .write_sectors = ahci_write_disk,
+};
 
 volatile bool is_transfer_complete = false;
 static ahci_state_t ahci_state = {0};
@@ -154,21 +169,7 @@ static ahci_dev_type_e check_type(hba_port_t* port) {
   }
 }
 
-static inline size_t get_device_port(hba_mem_t* hba_mem,
-                                     ahci_dev_type_e dev_type) {
-  uint32_t pi = hba_mem->port_implemented;
-  for (size_t i = 0; i < 32; i++) {
-    if (pi & (1 << i)) {
-      hba_port_t* port = &hba_mem->ports[i];
-      if (check_type(port) == dev_type) {
-        return i;
-      }
-    }
-  }
-  return SIZE_MAX;  // Device type not found
-}
-
-void probe_port(hba_mem_t* abar) {
+static void debug_probe_port(hba_mem_t* abar) {
   // Search disk in implemented ports
   uint32_t pi = abar->port_implemented;
   int i = 0;
@@ -193,7 +194,7 @@ void probe_port(hba_mem_t* abar) {
   }
 }
 
-void start_cmd(hba_port_t* port) {
+static void start_cmd(hba_port_t* port) {
   // Wait until CR (bit15) is cleared
   while (port->command & HBA_PxCMD_CR) {
   }
@@ -203,7 +204,7 @@ void start_cmd(hba_port_t* port) {
   port->command |= HBA_PxCMD_ST;
 }
 
-void stop_cmd(hba_port_t* port) {
+static void stop_cmd(hba_port_t* port) {
   // Clear ST (bit0)
   port->command &= ~HBA_PxCMD_ST;
 
@@ -232,9 +233,16 @@ static inline bool is_port_ready(hba_port_t* port) {
   return (port->s_status & 0x0F) == HBA_PORT_IPM_ACTIVE;
 }
 
-ahci_result_t sata_init(size_t sata_port_index, size_t num_slots) {
+static ahci_result_t sata_init(uint32_t sata_port_index, uint32_t num_slots) {
   hba_port_t* port = &ahci_state.hba_mem->ports[sata_port_index];
-  ahci_sata_state_t* sata_state = &ahci_state.sata_state[sata_port_index];
+  ahci_sata_state_t* sata_state = kmalloc(sizeof(ahci_sata_state_t));
+
+  if (!sata_state) {
+    return AHCI_ERR_OUT_OF_MEMORY;
+  }
+
+  sata_state->sata_port_index = sata_port_index;
+  sata_state->num_slots = num_slots;
 
   ahci_log_print("Initializing SATA port: %zu\n", sata_port_index);
   ahci_log_print("  Port command register: 0x%08X\n", port->command);
@@ -302,7 +310,6 @@ ahci_result_t sata_init(size_t sata_port_index, size_t num_slots) {
   kmemset(sata_state->fis_vaddr, 0, HBA_FIS_SIZE);
   kmemset(sata_state->cmd_table_vaddr, 0, HBA_CMD_TBL_SIZE);
 
-#ifdef AHCI_DEBUG
   ahci_log_print("  Command list buffer virtual address: 0x%p\n",
                  sata_state->clb_vaddr);
   ahci_log_print("  Command list buffer physical address: 0x%p\n",
@@ -315,7 +322,6 @@ ahci_result_t sata_init(size_t sata_port_index, size_t num_slots) {
   ahci_log_print("  Command table physical address: 0x%p\n",
                  (void*)sata_state->cmd_table_paddr);
   ahci_log_print("  Number of command slots: %zu\n", num_slots);
-#endif
 
   port->clb = (uint32_t)(uintptr_t)sata_state->clb_paddr;
   port->clbu = (uint32_t)((uintptr_t)sata_state->clb_paddr >> 32);
@@ -332,9 +338,56 @@ ahci_result_t sata_init(size_t sata_port_index, size_t num_slots) {
         (uint32_t)((uintptr_t)sata_state->cmd_table_paddr >> 32);
   }
 
-  start_cmd(port);
+  struct block_device* sata_device = kmalloc(sizeof(struct block_device));
 
+  if (!sata_device) {
+    ahci_log_error("Failed to allocate memory for block device.");
+    return AHCI_ERR_OUT_OF_MEMORY;
+  }
+
+  sata_device->type = BLOCK_DEVICE_DISK;
+  sata_device->start_lba = 0;
+  sata_device->sector_count =
+      ((1 << 20) * 80) / AHCI_SECTOR_SIZE;  // 80 MB disk
+  sata_device->sector_size = AHCI_SECTOR_SIZE;
+  sata_device->ops = &ahci_block_ops;
+  sata_device->private_data = sata_state;
+
+  int result = device_registry_register(sata_device, DEVICE_TYPE_BLOCK);
+
+  if (result < 0) {
+    ahci_log_error("Failed to register block device, result: %d", result);
+    kfree(sata_device);
+    return AHCI_ERR_MEMORY_MAPPING;
+  }
+
+  start_cmd(port);
   return AHCI_SUCCESS;
+}
+
+static void init_all_sata_device(hba_mem_t* hba_mem) {
+  const uint32_t pi = hba_mem->port_implemented;
+  const ahci_dev_type_e dev_type = AHCI_DEV_SATA;
+
+  for (size_t i = 0; i < 32; i++) {
+    if (!(pi & (1 << i))) {
+      continue;
+    }
+
+    hba_port_t* port = &hba_mem->ports[i];
+
+    if (check_type(port) != dev_type) {
+      continue;
+    }
+
+    const size_t num_slots = num_command_slots(hba_mem);
+    ahci_result_t sata_init_result = sata_init(i, num_slots);
+
+    if (sata_init_result != AHCI_SUCCESS) {
+      ahci_log_error("Failed to initialize SATA port, result: %d",
+                     sata_init_result);
+    }
+  }
 }
 
 ahci_result_t ahci_init(void) {
@@ -401,36 +454,21 @@ ahci_result_t ahci_init(void) {
   ahci_enable(hba_mem);
   ahci_log_print("  Controller enabled.\n");
 
-  size_t sata_port_index = get_device_port(hba_mem, AHCI_DEV_SATA);
-
-  if (sata_port_index != SIZE_MAX) {
-    ahci_log_print("  SATA device found at port %zu\n", sata_port_index);
-  } else {
-    ahci_log_error("No SATA device found.\n");
-    return AHCI_ERR_SATA_NOT_FOUND;
-  }
-
   ahci_state.hba_mem = hba_mem;
-  ahci_state.sata_port_index = sata_port_index;
 
   ahci_log_print("  Initialization completed.\n");
 
-  const size_t num_slots = num_command_slots(hba_mem);
-  ahci_result_t sata_init_result = sata_init(sata_port_index, num_slots);
-
-  if (sata_init_result != AHCI_SUCCESS) {
-    ahci_log_error("Failed to initialize SATA port, result: %d",
-                   sata_init_result);
-    return sata_init_result;
-  }
+  // init all SATA devices
+  init_all_sata_device(hba_mem);
 
   return AHCI_SUCCESS;
 }
 
-static inline bool _ahci_read_disk(size_t sata_port_index, uint64_t start_lba,
-                                   uint32_t sector_count, void* buffer) {
+static inline bool _ahci_read_disk(ahci_sata_state_t* sata_state,
+                                   uint64_t start_lba, uint32_t sector_count,
+                                   void* buffer) {
+  uint32_t sata_port_index = sata_state->sata_port_index;
   hba_port_t* sata_port = &ahci_state.hba_mem->ports[sata_port_index];
-  ahci_sata_state_t* sata_state = &ahci_state.sata_state[sata_port_index];
 
   size_t slot = 0;
   sata_port->interrupt_status = (uint32_t)-1;
@@ -518,10 +556,11 @@ static inline bool _ahci_read_disk(size_t sata_port_index, uint64_t start_lba,
   return true;
 }
 
-static inline bool _ahci_write_disk(size_t sata_port_index, uint64_t start_lba,
-                                    uint32_t sector_count, void* buffer) {
+static inline bool _ahci_write_disk(ahci_sata_state_t* sata_state,
+                                    uint64_t start_lba, uint32_t sector_count,
+                                    const void* buffer) {
+  uint32_t sata_port_index = sata_state->sata_port_index;
   hba_port_t* sata_port = &ahci_state.hba_mem->ports[sata_port_index];
-  ahci_sata_state_t* sata_state = &ahci_state.sata_state[sata_port_index];
 
   size_t slot = 0;
   sata_port->interrupt_status = (uint32_t)-1;
@@ -609,14 +648,64 @@ static inline bool _ahci_write_disk(size_t sata_port_index, uint64_t start_lba,
   return true;  // Placeholder for future implementation
 }
 
-bool ahci_read_disk(uint64_t start_lba, uint32_t sector_count, void* buffer) {
-  const size_t index = ahci_state.sata_port_index;
-  const bool result = _ahci_read_disk(index, start_lba, sector_count, buffer);
-  return result;
+static int ahci_read_disk(struct block_device* dev, void* buffer,
+                          size_t start_lba, size_t sector_count) {
+  ahci_sata_state_t* sata_state = dev->private_data;
+  void* private_buffer = kmalloc(sector_count * AHCI_SECTOR_SIZE);
+
+  if (!private_buffer) {
+    return -1;  // Failure
+  }
+
+  uintptr_t physical_buffer_addr = 0;
+  mm_result_t mm_result =
+      mm_get_current_mapping(private_buffer, &physical_buffer_addr);
+
+  if (mm_result != MM_SUCCESS || physical_buffer_addr == 0) {
+    kfree(private_buffer);
+    return -1;  // Failure
+  }
+
+  bool result = _ahci_read_disk(sata_state, start_lba, sector_count,
+                                (void*)physical_buffer_addr);
+
+  if (result) {
+    memcpy(buffer, private_buffer, sector_count * AHCI_SECTOR_SIZE);
+    kfree(private_buffer);
+    return 0;  // Success
+  }
+
+  kfree(private_buffer);
+  return -1;  // Failure
 }
 
-bool ahci_write_disk(uint64_t start_lba, uint32_t sector_count, void* buffer) {
-  const size_t index = ahci_state.sata_port_index;
-  const bool result = _ahci_write_disk(index, start_lba, sector_count, buffer);
-  return result;
+static int ahci_write_disk(struct block_device* dev, const void* buffer,
+                           size_t start_lba, size_t sector_count) {
+  ahci_sata_state_t* sata_state = dev->private_data;
+  void* private_buffer = kmalloc(sector_count * AHCI_SECTOR_SIZE);
+
+  if (!private_buffer) {
+    return -1;  // Failure
+  }
+
+  memcpy(private_buffer, buffer, sector_count * AHCI_SECTOR_SIZE);
+
+  uintptr_t physical_buffer_addr = 0;
+  mm_result_t mm_result =
+      mm_get_current_mapping(private_buffer, &physical_buffer_addr);
+
+  if (mm_result != MM_SUCCESS || physical_buffer_addr == 0) {
+    kfree(private_buffer);
+    return -1;  // Failure
+  }
+
+  bool result = _ahci_write_disk(sata_state, start_lba, sector_count,
+                                 (void*)physical_buffer_addr);
+  if (result) {
+    kfree(private_buffer);
+    return 0;  // Success
+  }
+
+  kfree(private_buffer);
+  return -1;  // Failure
 }

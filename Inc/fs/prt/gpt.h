@@ -13,6 +13,19 @@
 #define GPT_CRC32_POLYNOMIAL 0xEDB88320
 #define GPT_NUM_PART_ENTRY 128
 
+typedef enum {
+  GPT_SUCCESS = 0,
+  GPT_ERR_INVALID_MBR,
+  GPT_ERR_NOT_GPT_PARTITION,
+  GPT_ERR_INVALID_HEADER,
+  GPT_ERR_INCONSISTENT_HEADERS,
+  GPT_ERR_INVALID_PARTITION_ENTRY,
+  GPT_ERR_OUTOF_PARTITION_ENTRIES,
+  GPT_ERR_INVALID_PARAMETER,
+  GPT_ERR_OUT_MM,
+  GPT_ERR_READ
+} gpt_result_t;
+
 typedef struct __attribute__((packed)) {
   uint8_t boot_indicator;   // 0x00 (not bootable)
   uint8_t starting_CHS[3];  // 0x000001
@@ -43,8 +56,8 @@ typedef struct __attribute__((packed)) {
   uint32_t num_part_entr;   // entries in the partition table
   uint32_t size_Part_entr;  // size of each partition entry (128 bytes).
   uint32_t table_CRC32;     // A checksum of partition table.
-  uint8_t reserved1[420];   // Reserved (must be 0).
-} gpt_primary_header_t;
+  // uint8_t reserved1[420];   // Reserved (must be 0).
+} gpt_header_t;
 
 typedef struct __attribute__((packed)) {
   uint8_t partition_type_guid[16];  // indicat type of partition
@@ -55,9 +68,15 @@ typedef struct __attribute__((packed)) {
   uint16_t name[36];  // name of partition (UTF-16)
 } gpt_partition_entry_t;
 
-bool get_gpt_header(gpt_primary_header_t* header);
+struct block_device;
 
-size_t get_num_gpt_valid_partition(gpt_primary_header_t* header);
+gpt_result_t gpt_get_primary_header(struct block_device* dev,
+                                    gpt_header_t* primary_header);
 
-bool get_gpt_partition_entry(gpt_primary_header_t* header,
-                             gpt_partition_entry_t* entry, size_t index);
+gpt_result_t gpt_iterate_partition_entries(
+    struct block_device* dev, gpt_header_t* header, int* save_idx, void* ctx,
+    int (*fill)(void* ctx, gpt_partition_entry_t* entry));
+
+gpt_result_t gpt_get_partition_entry(struct block_device* dev,
+                                     gpt_header_t* header, int index,
+                                     gpt_partition_entry_t* entry);

@@ -1,9 +1,10 @@
 #pragma once
 
-#include "limine.h"
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+
+#include "limine.h"
 
 #define MEMMAP_USABLE LIMINE_MEMMAP_USABLE
 #define MEMMAP_RESERVED LIMINE_MEMMAP_RESERVED
@@ -16,7 +17,7 @@
 #define MEMMAP_RESERVED_MAPPED LIMINE_MEMMAP_RESERVED_MAPPED
 
 struct FrameBuffer_s {
-  void *address;
+  void* address;
   uint64_t width;
   uint64_t height;
   uint64_t pitch;
@@ -35,14 +36,36 @@ struct MemoryMapEntry_s {
   uint64_t type;
 };
 
+struct boot_uuid {
+  uint32_t a;
+  uint16_t b;
+  uint16_t c;
+  uint8_t d[8];
+};
+
+enum boot_volume_type {
+  BOOT_VOLUME_TYPE_UNKNOWN,
+  BOOT_VOLUME_TYPE_MBR,
+  BOOT_VOLUME_TYPE_GPT
+};
+
+struct boot_volume_info {
+  uint32_t partition_index;
+  struct boot_uuid gpt_disk_uuid;
+  struct boot_uuid gpt_partition_uuid;
+  enum boot_volume_type type;
+};
+
 bool isBootOk(void);
 
-void getFramebufferAddr(struct FrameBuffer_s *framebuffer);
+void getFramebufferAddr(struct FrameBuffer_s* framebuffer);
 
 size_t getMMapEntryCount(void);
 
-bool copyMMapEntry(struct MemoryMapEntry_s *dest);
+bool copyMMapEntry(struct MemoryMapEntry_s* dest);
 
 uintptr_t getHHDMOffset(void);
 
-void *getRSDT(void);
+void* getRSDT(void);
+
+bool getBootVolumeInfo(struct boot_volume_info* volume);

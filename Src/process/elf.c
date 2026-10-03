@@ -1,6 +1,7 @@
 #include "elf.h"
 
 #include <arch/x86_64/mmu.h>
+#include <fs/fs.h>
 #include <mm/mm.h>
 #include <mm/vmm/kheap.h>
 #include <process/process.h>
@@ -10,11 +11,10 @@
 #include <stdint.h>
 #include <utils/log.h>
 #include <utils/utils.h>
-#include <vfs/vfs.h>
 
 const uint8_t MAGIC_ELF_BYTES[4] = {0x7F, 'E', 'L', 'F'};
 
-static bool is_valid_elf_hdr(const elf64_ehdr_t* ehdr) {
+static bool is_valid_elf_hdr(const elf64_ehdr_t *ehdr) {
   for (int i = 0; i < 4; ++i) {
     if (ehdr->e_ident[i] != MAGIC_ELF_BYTES[i]) {
       return false;
@@ -38,7 +38,7 @@ static bool is_valid_elf_hdr(const elf64_ehdr_t* ehdr) {
   return true;
 }
 
-static inline bool is_valid_elf_phdr(const elf64_phdr_t* phdr) {
+static inline bool is_valid_elf_phdr(const elf64_phdr_t *phdr) {
   if (phdr->p_memsz < phdr->p_filesz) {
     return false;
   }
@@ -54,50 +54,46 @@ static inline vma_flags_t get_elf_flag(Elf64_Word p_flags) {
   vma_flags_t flags = 0;
 
   if (p_flags & PF_R) {
-    flags |= VMA_READ;  // Readable
+    flags |= VMA_READ; // Readable
   }
 
   if (p_flags & PF_W) {
-    flags |= VMA_WRITE;  // Writable
+    flags |= VMA_WRITE; // Writable
   }
 
   if (p_flags & PF_X) {
-    flags |= VMA_EXEC;  // Executable
+    flags |= VMA_EXEC; // Executable
   }
 
   return flags;
 }
 
-int load_elf_file(process_t* process, const char* path, void** entry_point) {
-  vfs_t* file = kmalloc(sizeof(vfs_t));
-  int ret = vfs_open(file, path, FA_READ);
+int load_elf_file(process_t *process, const char *path, void **entry_point) {
+  struct file *file = fs_open(path, VFS_O_RDONLY);
 
-  if (ret < 0) {
+  if (!file) {
 #ifdef ELF_LOADER_DEBUG
     log_error("Failed to open ELF file\n");
 #endif
-    kfree(file);
     return 1;
   }
 
-  if (vfs_get_file_size(file) < sizeof(elf64_ehdr_t)) {
-#ifdef ELF_LOADER_DEBUG
-    log_error("File size is too small to be a valid ELF file\n");
-#endif
-    kfree(file);
-    return 1;
-  }
+  // if (vfs_get_file_size(file) < sizeof(elf64_ehdr_t)) {
+  // #ifdef ELF_LOADER_DEBUG
+  // log_error("File size is too small to be a valid ELF file\n");
+  // #endif
+  // return 1;
+  // }
 
-  elf64_ehdr_t* ehdr = (elf64_ehdr_t*)kmalloc(sizeof(elf64_ehdr_t));
-  ret = vfs_read(file, (void*)ehdr, sizeof(elf64_ehdr_t));
+  elf64_ehdr_t *ehdr = (elf64_ehdr_t *)kmalloc(sizeof(elf64_ehdr_t));
+  size_t bytes_read = fs_read(file, (void *)ehdr, sizeof(elf64_ehdr_t));
 
-  if (ret < 0) {
+  if (bytes_read < sizeof(elf64_ehdr_t)) {
 #ifdef ELF_LOADER_DEBUG
     log_error("Failed to read ELF header\n");
 #endif
-    vfs_close(file);
+    fs_close(file);
     kfree(ehdr);
-    kfree(file);
     return 1;
   }
 
@@ -105,14 +101,13 @@ int load_elf_file(process_t* process, const char* path, void** entry_point) {
 #ifdef ELF_LOADER_DEBUG
     log_error("Invalid ELF file\n");
 #endif
-    vfs_close(file);
+    fs_close(file);
     kfree(ehdr);
-    kfree(file);
     return 1;
   }
 
   if (entry_point != NULL) {
-    *entry_point = (void*)ehdr->e_entry;
+    *entry_point = (void *)ehdr->e_entry;
   }
 
 #ifdef ELF_LOADER_DEBUG
@@ -124,20 +119,19 @@ int load_elf_file(process_t* process, const char* path, void** entry_point) {
   log_print("\n");
 #endif
 
-  elf64_phdr_t* phdr = (elf64_phdr_t*)kmalloc(sizeof(elf64_phdr_t));
+  elf64_phdr_t *phdr = (elf64_phdr_t *)kmalloc(sizeof(elf64_phdr_t));
 
   for (size_t i = 0; i < ehdr->e_phnum; ++i) {
-    vfs_seek(file, ehdr->e_phoff + i * sizeof(elf64_phdr_t));
-    ret = vfs_read(file, (void*)phdr, sizeof(elf64_phdr_t));
+    fs_lseek(file, ehdr->e_phoff + i * sizeof(elf64_phdr_t), VFS_SEEK_SET);
+    bytes_read = fs_read(file, (void *)phdr, sizeof(elf64_phdr_t));
 
-    if (ret < 0) {
+    if (bytes_read < sizeof(elf64_phdr_t)) {
 #ifdef ELF_LOADER_DEBUG
       log_error("Failed to read program header\n");
 #endif
-      vfs_close(file);
+      fs_close(file);
       kfree(phdr);
       kfree(ehdr);
-      kfree(file);
       return 1;
     }
 
@@ -174,10 +168,9 @@ int load_elf_file(process_t* process, const char* path, void** entry_point) {
 #ifdef ELF_LOADER_DEBUG
         log_error("Failed to add VMA for ELF segment\n");
 #endif
-        vfs_close(file);
+        fs_close(file);
         kfree(phdr);
         kfree(ehdr);
-        kfree(file);
         return 1;
       }
     }
@@ -208,10 +201,9 @@ int load_elf_file(process_t* process, const char* path, void** entry_point) {
 #ifdef ELF_LOADER_DEBUG
       log_error("Failed to add VMA for zeroed region of ELF segment\n");
 #endif
-      vfs_close(file);
+      fs_close(file);
       kfree(phdr);
       kfree(ehdr);
-      kfree(file);
       return 1;
     }
   }

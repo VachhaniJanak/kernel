@@ -7,11 +7,13 @@
 #include <arch/x86_64/tss.h>
 #include <boot/boot.h>
 #include <consolefont/font.h>
+#include <device/device.h>
 #include <drivers/acpi/acpi.h>
 #include <drivers/ahci/ahci.h>
 #include <drivers/pcie/pcie.h>
 #include <drivers/screen/screen.h>
 #include <drivers/serial/serial.h>
+#include <fs/fs.h>
 #include <input/input.h>
 #include <kernel.h>
 #include <mm/mm.h>
@@ -23,7 +25,6 @@
 #include <stdint.h>
 #include <utils/log.h>
 #include <utils/utils.h>
-#include <vfs/vfs.h>
 
 static void loop(void) {
   while (true) {
@@ -61,6 +62,8 @@ void kmain(void) {
     loop();
   }
 
+  device_registry_init();
+
   void* addr = getRSDT();
 
   if (addr == NULL) {
@@ -85,17 +88,12 @@ void kmain(void) {
 
   ahci_init();
 
-  timer_sleep_ms(1000);
-
-  if (!init_vfs()) {
-    LOG_ERROR("VFS initialization failed!");
-    loop();
-  }
+  fs_init();
 
   scheduler_init();
 
   while (true) {
-    log_error("\tscheduler is exited\n");
+    log_error("scheduler is exited");
     timer_sleep_ms(5000);
   }
 }

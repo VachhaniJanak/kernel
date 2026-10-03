@@ -548,7 +548,7 @@ void tty_output_thread(void* arg) {
 
     // If the queue is empty, we can blink the cursor
     const timer_tick_t current_ticks = timer_get_ticks();
-    const timer_tick_t blink_interval_ticks = timer_ms_to_ticks(500);
+    const timer_tick_t blink_interval_ticks = timer_ms_to_ticks(300);
 
     if (timer_get_delta_tick(blink_timer, current_ticks) >=
         blink_interval_ticks) {

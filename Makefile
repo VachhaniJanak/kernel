@@ -20,13 +20,13 @@ createdisk:
 	@mkdir -p $(dir IMG)
 	dd if=/dev/zero of=$(IMG) bs=1M count=128
 	
-	@echo ">> Creating EFI System Partition — 20MB"
+	@echo ">> Creating EFI System Partition — 40MB"
 	@sgdisk \
 		-n 1:2048:+40M \
 		-t 1:C12A7328-F81F-11D2-BA4B-00A0C93EC93B \
 		$(IMG)
 	
-	@echo ">> Creating Normal FAT32 partition — 50MB"
+	@echo ">> Creating Normal FAT32 partition — 64MB"
 	@sgdisk \
 		-n 2:0:+64M \
 		-t 2:EBD0A0A2-B9E5-4433-87C0-68B6B72699C7 \

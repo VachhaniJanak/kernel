@@ -5,6 +5,7 @@
 #include <arch/x86_64/stack.h>
 #include <arch/x86_64/timer.h>
 #include <arch/x86_64/tss.h>
+#include <fs/fs.h>
 #include <kernel.h>
 #include <mm/mm.h>
 #include <mm/vmm/kheap.h>
@@ -22,9 +23,6 @@
 #include <tty/tty.h>
 #include <utils/log.h>
 #include <utils/utils.h>
-#include <vfs/vfs.h>
-
-#include "elf.h"
 
 // #define SCHEDULER_DEBUG
 
@@ -33,19 +31,19 @@ spinlock_t scheduler_state_lock = {0};
 static struct scheduler_state_s scheduler_state = {0};
 static cpu_local_data_t bsp_local_data = {0};
 
-process_t* scheduler_get_current_process(void) {
+process_t *scheduler_get_current_process(void) {
   return scheduler_state.current_process;
 }
 
-process_t* scheduler_get_kernel_process(void) {
+process_t *scheduler_get_kernel_process(void) {
   return scheduler_state.kernel_process;
 }
 
-thread_t* scheduler_get_current_thread(void) {
+thread_t *scheduler_get_current_thread(void) {
   return scheduler_state.current_thread;
 }
 
-thread_t* scheduler_get_idle_thread(void) {
+thread_t *scheduler_get_idle_thread(void) {
   return scheduler_state.idle_thread;
 }
 
@@ -59,12 +57,12 @@ size_t scheduler_get_total_threads(void) {
 
 void scheduler_yield(void) { __asm__ volatile("int $32"); }
 
-process_t* scheduler_add_process(void) {
+process_t *scheduler_add_process(void) {
   if (scheduler_state.process_list_start == NULL) {
-    process_t* process = (process_t*)kmalloc(sizeof(process_t));
+    process_t *process = (process_t *)kmalloc(sizeof(process_t));
 
     if (process == NULL) {
-      return NULL;  // Memory allocation failed
+      return NULL; // Memory allocation failed
     }
 
     process->pid = scheduler_state.next_pid++;
@@ -77,11 +75,11 @@ process_t* scheduler_add_process(void) {
     return process;
   }
 
-  process_t* current = scheduler_state.process_list_end;
-  current->next = (process_t*)kmalloc(sizeof(process_t));
+  process_t *current = scheduler_state.process_list_end;
+  current->next = (process_t *)kmalloc(sizeof(process_t));
 
   if (current->next == NULL) {
-    return NULL;  // Memory allocation failed
+    return NULL; // Memory allocation failed
   }
 
   current->next->pid = scheduler_state.next_pid++;
@@ -99,7 +97,7 @@ bool scheduler_remove_process(size_t pid) {
   }
 
   if (scheduler_state.process_list_start->pid == pid) {
-    process_t* to_remove = scheduler_state.process_list_start;
+    process_t *to_remove = scheduler_state.process_list_start;
     scheduler_state.process_list_start = to_remove->next;
 
     if (scheduler_state.process_list_start == NULL) {
@@ -111,10 +109,10 @@ bool scheduler_remove_process(size_t pid) {
     return true;
   }
 
-  process_t* current = scheduler_state.process_list_start;
+  process_t *current = scheduler_state.process_list_start;
   while (current->next != NULL) {
     if (current->next->pid == pid) {
-      process_t* to_remove = current->next;
+      process_t *to_remove = current->next;
 
       if (to_remove == scheduler_state.process_list_end) {
         scheduler_state.process_list_end = current;
@@ -132,13 +130,13 @@ bool scheduler_remove_process(size_t pid) {
   return false;
 }
 
-process_t* scheduler_get_process_by_pid(size_t pid) {
+process_t *scheduler_get_process_by_pid(size_t pid) {
   if (scheduler_state.process_list_end != NULL &&
       scheduler_state.process_list_end->pid == pid) {
     return scheduler_state.process_list_end;
   }
 
-  process_t* current = scheduler_state.process_list_start;
+  process_t *current = scheduler_state.process_list_start;
 
   while (current != NULL) {
     if (current->pid == pid) {
@@ -150,18 +148,18 @@ process_t* scheduler_get_process_by_pid(size_t pid) {
   return NULL;
 }
 
-thread_t* scheduler_add_thread(process_t* process) {
+thread_t *scheduler_add_thread(process_t *process) {
   if (process == NULL) {
     return NULL;
   }
 
-  process_t* current_process = process;
+  process_t *current_process = process;
 
   if (current_process->thread_list_start == NULL) {
-    thread_t* thread = (thread_t*)kmalloc(sizeof(thread_t));
+    thread_t *thread = (thread_t *)kmalloc(sizeof(thread_t));
 
     if (thread == NULL) {
-      return NULL;  // Memory allocation failed
+      return NULL; // Memory allocation failed
     }
 
     thread->tid = scheduler_state.next_tid++;
@@ -175,11 +173,11 @@ thread_t* scheduler_add_thread(process_t* process) {
     return thread;
   }
 
-  thread_t* current_thread = current_process->thread_list_end;
-  thread_t* new_thread = (thread_t*)kmalloc(sizeof(thread_t));
+  thread_t *current_thread = current_process->thread_list_end;
+  thread_t *new_thread = (thread_t *)kmalloc(sizeof(thread_t));
 
   if (new_thread == NULL) {
-    return NULL;  // Memory allocation failed
+    return NULL; // Memory allocation failed
   }
 
   current_thread->next = new_thread;
@@ -194,19 +192,19 @@ thread_t* scheduler_add_thread(process_t* process) {
   return new_thread;
 }
 
-bool scheduler_remove_thread(process_t* process, size_t tid) {
+bool scheduler_remove_thread(process_t *process, size_t tid) {
   if (process == NULL) {
     return false;
   }
 
-  process_t* current_process = process;
+  process_t *current_process = process;
 
   if (current_process->thread_list_start == NULL) {
     return false;
   }
 
   if (current_process->thread_list_start->tid == tid) {
-    thread_t* to_remove = current_process->thread_list_start;
+    thread_t *to_remove = current_process->thread_list_start;
     current_process->thread_list_start = to_remove->next;
 
     if (current_process->thread_list_start == NULL) {
@@ -218,11 +216,11 @@ bool scheduler_remove_thread(process_t* process, size_t tid) {
     return true;
   }
 
-  thread_t* current_thread = current_process->thread_list_start;
+  thread_t *current_thread = current_process->thread_list_start;
 
   while (current_thread->next != NULL) {
     if (current_thread->next->tid == tid) {
-      thread_t* to_remove = current_thread->next;
+      thread_t *to_remove = current_thread->next;
 
       if (to_remove == current_process->thread_list_end) {
         current_process->thread_list_end = current_thread;
@@ -240,13 +238,13 @@ bool scheduler_remove_thread(process_t* process, size_t tid) {
   return false;
 }
 
-thread_t* scheduler_get_thread(process_t* process, size_t tid) {
+thread_t *scheduler_get_thread(process_t *process, size_t tid) {
   if (process == NULL) {
     return NULL;
   }
 
-  process_t* current_process = process;
-  thread_t* current_thread = current_process->thread_list_start;
+  process_t *current_process = process;
+  thread_t *current_thread = current_process->thread_list_start;
 
   while (current_thread != NULL) {
     if (current_thread->tid == tid) {
@@ -258,9 +256,9 @@ thread_t* scheduler_get_thread(process_t* process, size_t tid) {
   return NULL;
 }
 
-static inline bool get_next_thread(process_t** nprocess, thread_t** nthread,
-                                   process_t* cprocess, thread_t* cthread) {
-  thread_t* current_thread = cthread;
+static inline bool get_next_thread(process_t **nprocess, thread_t **nthread,
+                                   process_t *cprocess, thread_t *cthread) {
+  thread_t *current_thread = cthread;
 
   if (cprocess == NULL || cthread == NULL) {
     return false;
@@ -269,7 +267,7 @@ static inline bool get_next_thread(process_t** nprocess, thread_t** nthread,
   // If the current thread is the last thread in the current process, move to
   // the next process
   if (current_thread == cprocess->thread_list_end) {
-    process_t* current_process = cprocess;
+    process_t *current_process = cprocess;
 
     if (current_process == scheduler_state.process_list_end) {
       *nprocess = scheduler_state.process_list_start;
@@ -287,13 +285,13 @@ static inline bool get_next_thread(process_t** nprocess, thread_t** nthread,
   return true;
 }
 
-static inline void scheduler(struct scheduler_frame_s* frame,
-                             context_switch_t* context_switch) {
+static inline void scheduler(struct scheduler_frame_s *frame,
+                             context_switch_t *context_switch) {
   unsigned long flags;
   SPIN_LOCK_ACQUIRE(&scheduler_state_lock, flags);
 
-  process_t* current_process = scheduler_state.current_process;
-  thread_t* current_thread = scheduler_state.current_thread;
+  process_t *current_process = scheduler_state.current_process;
+  thread_t *current_thread = scheduler_state.current_thread;
 
   if (current_process == NULL || scheduler_state.total_threads == 0) {
     SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
@@ -302,12 +300,12 @@ static inline void scheduler(struct scheduler_frame_s* frame,
     return;
   }
 
-  process_t* next_process = NULL;
-  thread_t* next_thread = NULL;
+  process_t *next_process = NULL;
+  thread_t *next_thread = NULL;
 
   size_t attempts = 0;
-  process_t* temp_process = current_process;
-  thread_t* temp_thread = current_thread;
+  process_t *temp_process = current_process;
+  thread_t *temp_thread = current_thread;
 
   // Loop through all threads to find the next READY or SLEEPING thread
   while (attempts < scheduler_state.total_threads) {
@@ -353,8 +351,8 @@ static inline void scheduler(struct scheduler_frame_s* frame,
   gs_state_t next_gs = next_thread->gs_state;
 
   current_thread->gs_state = current_gs;
-  current_thread->user_stack_ptr = (void*)bsp_local_data.user_sp;
-  current_thread->kernel_stack_ptr = (void*)frame;
+  current_thread->user_stack_ptr = (void *)bsp_local_data.user_sp;
+  current_thread->kernel_stack_ptr = (void *)frame;
 
   // switch to the next thread
   scheduler_state.current_process = next_process;
@@ -396,14 +394,14 @@ static inline void scheduler(struct scheduler_frame_s* frame,
   context_switch->stack = (uint64_t)next_thread->kernel_stack_ptr;
 }
 
-uint64_t timer_irq_isr_handler(struct scheduler_frame_s* frame,
-                               context_switch_t* context_switch) {
+uint64_t timer_irq_isr_handler(struct scheduler_frame_s *frame,
+                               context_switch_t *context_switch) {
   scheduler(frame, context_switch);
   lapic_eoi();
   return 0;
 }
 
-static void idle(void* arg) {
+static void idle(void *arg) {
   UNUSED(arg);
 
   while (true) {
@@ -411,7 +409,7 @@ static void idle(void* arg) {
   }
 }
 
-void test_thread1(void* arg) {
+void test_thread1(void *arg) {
   UNUSED(arg);
 
   static size_t counter = 0;
@@ -422,7 +420,7 @@ void test_thread1(void* arg) {
   }
 }
 
-void test_thread2(void* arg) {
+void test_thread2(void *arg) {
   UNUSED(arg);
 
   static size_t counter = 0;
@@ -433,8 +431,7 @@ void test_thread2(void* arg) {
   }
 }
 
-void foo(void) {
-  vfs_list_directory("/userprograms/");
+static void foo(void) {
   int ret = load_user_process(NULL, "/userprograms/demo.elf", NULL);
 
   if (ret != 0) {
@@ -465,14 +462,14 @@ void scheduler_init(void) {
   scheduler_state.next_tid = 1;
 
   // Add kernel process
-  process_t* kernel_process = scheduler_add_process();
+  process_t *kernel_process = scheduler_add_process();
   kprocess_init(kernel_process);
 
   scheduler_state.kernel_process = kernel_process;
   scheduler_state.current_process = kernel_process;
 
   // Create the idle thread
-  thread_t* idle_thread = scheduler_add_thread(kernel_process);
+  thread_t *idle_thread = scheduler_add_thread(kernel_process);
 
   if (idle_thread == NULL) {
     log_error("Failed to create idle thread");
@@ -482,7 +479,7 @@ void scheduler_init(void) {
 
   kstrcpy(idle_thread->name, "idle");
   idle_thread->status = THREAD_READY;
-  idle_thread->kernel_stack_base = (void*)KERNEL_STACK_BASE;
+  idle_thread->kernel_stack_base = (void *)KERNEL_STACK_BASE;
   idle_thread->kernel_stack_ptr = 0;
 
   scheduler_state.idle_thread = idle_thread;
@@ -510,7 +507,7 @@ void scheduler_init(void) {
   idle(NULL);
 }
 
-void scheduler_terminate_process(process_t* process) {
+void scheduler_terminate_process(process_t *process) {
   if (process == NULL) {
     return;
   }
@@ -519,7 +516,7 @@ void scheduler_terminate_process(process_t* process) {
   SPIN_LOCK_ACQUIRE(&process->lock, flags);
 
   // Mark all threads of the process as DEAD
-  thread_t* current_thread = process->thread_list_start;
+  thread_t *current_thread = process->thread_list_start;
 
   while (current_thread != NULL) {
     current_thread->status = THREAD_DEAD;
@@ -541,7 +538,7 @@ void scheduler_terminate_current_process(void) {
   unsigned long flags;
   SPIN_LOCK_ACQUIRE(&scheduler_state_lock, flags);
 
-  process_t* current_process = scheduler_state.current_process;
+  process_t *current_process = scheduler_state.current_process;
 
   SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
 
@@ -552,6 +549,6 @@ void scheduler_terminate_current_process(void) {
   scheduler_terminate_process(current_process);
 }
 
-void scheduler_mark_process_as_dead(process_t* process) {
+void scheduler_mark_process_as_dead(process_t *process) {
   cleanup_add_process(process);
 }

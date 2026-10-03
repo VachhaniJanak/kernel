@@ -3,6 +3,7 @@
 #include <arch/x86_64/mmu.h>
 #include <arch/x86_64/stack.h>
 #include <arch/x86_64/syscall.h>
+#include <fs/fs.h>
 #include <kernel.h>
 #include <mm/mm.h>
 #include <mm/pmm/pmm.h>
@@ -14,13 +15,13 @@
 #include <process/process.h>
 #include <process/scheduler.h>
 #include <process/thread.h>
-#include <stdbool.h>
-#include <stddef.h>
-#include <stdint.h>
 #include <tty/tty_output.h>
 #include <utils/log.h>
 #include <utils/utils.h>
-#include <vfs/vfs.h>
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #include "elf.h"
 
@@ -33,9 +34,9 @@ static inline size_t max(size_t a, size_t b) { return (a > b) ? a : b; }
 
 static inline size_t min(size_t a, size_t b) { return (a < b) ? a : b; }
 
-static inline bool get_intersection(vma_t* vma, uintptr_t region_start,
-                                    uintptr_t region_end, uintptr_t* start,
-                                    uintptr_t* end) {
+static inline bool get_intersection(vma_t *vma, uintptr_t region_start,
+                                    uintptr_t region_end, uintptr_t *start,
+                                    uintptr_t *end) {
   uintptr_t segment_start = (uintptr_t)vma->vm_start;
   uintptr_t segment_end = (uintptr_t)vma->vm_end;
 
@@ -66,7 +67,7 @@ static inline mm_flags_t get_vma_flags(uint32_t vma_flags) {
 static inline uintptr_t process_mmap(uintptr_t hint_addr, size_t length,
                                      int prot, int flags, int fd,
                                      size_t offset) {
-  process_t* current = scheduler_get_current_process();
+  process_t *current = scheduler_get_current_process();
 
   if (!current || length == 0) {
     return -1;
@@ -118,32 +119,32 @@ static inline uintptr_t process_mmap(uintptr_t hint_addr, size_t length,
   return gap_start;
 }
 
-void sys_mmap(syscall_frame_t* frame) {
-  uintptr_t addr = (uintptr_t)frame->arg1;  // Hint for where user wants it
+void sys_mmap(syscall_frame_t *frame) {
+  uintptr_t addr = (uintptr_t)frame->arg1; // Hint for where user wants it
   size_t length = (size_t)frame->arg2;
-  int prot = (int)frame->arg3;          // Read/Write/Execute permissions
-  int flags = (int)frame->arg4;         // Anonymous, Private, etc.
-  int fd = (int)frame->arg5;            // File descriptor (ignored for Anon)
-  size_t offset = (size_t)frame->arg6;  // File offset (ignored for Anon)
+  int prot = (int)frame->arg3;         // Read/Write/Execute permissions
+  int flags = (int)frame->arg4;        // Anonymous, Private, etc.
+  int fd = (int)frame->arg5;           // File descriptor (ignored for Anon)
+  size_t offset = (size_t)frame->arg6; // File offset (ignored for Anon)
 
   uintptr_t result = process_mmap(addr, length, prot, flags, fd, offset);
   frame->syscall_num = result;
 }
 
 static inline void free_vma_pages(uintptr_t start, uintptr_t end,
-                                  size_t page_size, process_t* current) {
+                                  size_t page_size, process_t *current) {
   const size_t num_pages_to_free = (end - start) / page_size;
-  void* root_table = phys_to_virt(current->page_table);
+  void *root_table = phys_to_virt(current->page_table);
 
   for (size_t i = 0; i < num_pages_to_free; i++) {
     uintptr_t page_to_free = start + i * page_size;
     uintptr_t phys_addr = 0;
 
     mm_result_t result =
-        unmap_page(root_table, (void*)page_to_free, &phys_addr);
+        unmap_page(root_table, (void *)page_to_free, &phys_addr);
 
     if (result == MM_SUCCESS && phys_addr != 0) {
-      pmm_free((void*)phys_addr);
+      pmm_free((void *)phys_addr);
       continue;
     }
 
@@ -156,13 +157,13 @@ static inline void free_vma_pages(uintptr_t start, uintptr_t end,
 
 static inline int process_munmap(uintptr_t addr, size_t length) {
   const size_t page_size = mm_get_page_size();
-  process_t* current = scheduler_get_current_process();
+  process_t *current = scheduler_get_current_process();
 
   if (!current || length == 0 || addr % page_size != 0) {
     return -1;
   }
 
-  vma_t* current_vma = current->mmap_vma;
+  vma_t *current_vma = current->mmap_vma;
   uintptr_t end_addr = addr;
   end_addr += page_align_up(length, page_size);
 
@@ -207,24 +208,24 @@ static inline int process_munmap(uintptr_t addr, size_t length) {
       vma_add(current, &r_vma);
       free_vma_pages(start, end, page_size, current);
     } else {
-      return -1;  // Invalid case, should not happen
+      return -1; // Invalid case, should not happen
     }
 
     current_vma = current_vma->prev;
   }
 
-  return 0;  // No overlapping VMA found
+  return 0; // No overlapping VMA found
 }
 
-void sys_munmap(syscall_frame_t* frame) {
-  uintptr_t addr = (uintptr_t)frame->arg1;  // Hint for where user wants it
+void sys_munmap(syscall_frame_t *frame) {
+  uintptr_t addr = (uintptr_t)frame->arg1; // Hint for where user wants it
   size_t length = (size_t)frame->arg2;
 
   int result = process_munmap(addr, length);
   frame->syscall_num = result;
 
 #ifdef PROCESS_DEBUG
-  process_t* current_process = scheduler_get_current_process();
+  process_t *current_process = scheduler_get_current_process();
 
   if (current_process) {
     vma_print(current_process);
@@ -233,15 +234,16 @@ void sys_munmap(syscall_frame_t* frame) {
 }
 
 static inline void update_page_protections(uintptr_t start, uintptr_t end,
-                                           size_t page_size, process_t* current,
+                                           size_t page_size, process_t *current,
                                            int prot) {
   const size_t num_pages = (end - start) / page_size;
-  void* root_table = phys_to_virt(current->page_table);
+  void *root_table = phys_to_virt(current->page_table);
   mm_flags_t flags = get_vma_flags(prot) | MM_FLAG_USER;
 
   for (size_t i = 0; i < num_pages; i++) {
     uintptr_t virt_addr = start + i * page_size;
-    mm_result_t result = change_page_flags(root_table, (void*)virt_addr, flags);
+    mm_result_t result =
+        change_page_flags(root_table, (void *)virt_addr, flags);
 #ifdef PROCESS_DEBUG
     if (result != MM_SUCCESS) {
       log_error(
@@ -255,13 +257,13 @@ static inline void update_page_protections(uintptr_t start, uintptr_t end,
 static inline int process_mprotect(uintptr_t addr, size_t length,
                                    uint32_t prot) {
   const size_t page_size = mm_get_page_size();
-  process_t* current = scheduler_get_current_process();
+  process_t *current = scheduler_get_current_process();
 
   if (!current || length == 0 || addr % page_size != 0) {
     return -1;
   }
 
-  vma_t* current_vma = current->mmap_vma;
+  vma_t *current_vma = current->mmap_vma;
   uintptr_t end_addr = addr;
   end_addr += page_align_up(length, page_size);
 
@@ -334,16 +336,16 @@ static inline int process_mprotect(uintptr_t addr, size_t length,
       vma_add(current, &c_vma);
       update_page_protections(start, end, page_size, current, prot);
     } else {
-      return -1;  // Invalid case, should not happen
+      return -1; // Invalid case, should not happen
     }
 
     current_vma = current_vma->prev;
   }
 
-  return 0;  // Successfully updated permissions
+  return 0; // Successfully updated permissions
 }
 
-void sys_mprotect(syscall_frame_t* frame) {
+void sys_mprotect(syscall_frame_t *frame) {
   uintptr_t addr = (uintptr_t)frame->arg1;
   size_t length = (size_t)frame->arg2;
   uint32_t prot = (uint32_t)frame->arg3;
@@ -352,7 +354,7 @@ void sys_mprotect(syscall_frame_t* frame) {
   frame->syscall_num = result;
 
 #ifdef PROCESS_DEBUG
-  process_t* current_process = scheduler_get_current_process();
+  process_t *current_process = scheduler_get_current_process();
 
   if (current_process) {
     vma_print(current_process);
@@ -361,7 +363,7 @@ void sys_mprotect(syscall_frame_t* frame) {
 }
 
 static inline uintptr_t process_set_brk(uintptr_t new_brk) {
-  process_t* current_process = scheduler_get_current_process();
+  process_t *current_process = scheduler_get_current_process();
 
   if (current_process == NULL) {
 #ifdef PROCESS_DEBUG
@@ -370,7 +372,7 @@ static inline uintptr_t process_set_brk(uintptr_t new_brk) {
     return 0;
   }
 
-  vma_t* heap_vma = current_process->heap_vma;
+  vma_t *heap_vma = current_process->heap_vma;
 
   if (heap_vma == NULL) {
 #ifdef PROCESS_DEBUG
@@ -388,7 +390,7 @@ static inline uintptr_t process_set_brk(uintptr_t new_brk) {
 
   const size_t page_size = mm_get_page_size();
   uintptr_t aligned_new_brk = page_align_up(new_brk, page_size);
-  vma_t* next_vma = heap_vma->next;
+  vma_t *next_vma = heap_vma->next;
 
 #ifdef PROCESS_DEBUG
   log_print("Current brk: 0x%lx, Requested brk: 0x%lx, Aligned brk: 0x%lx\n",
@@ -415,17 +417,17 @@ static inline uintptr_t process_set_brk(uintptr_t new_brk) {
     uintptr_t old_end = heap_vma->vm_end;
     uintptr_t new_end = aligned_new_brk;
     size_t num_pages_to_free = (old_end - new_end) / page_size;
-    void* root_table = phys_to_virt(current_process->page_table);
+    void *root_table = phys_to_virt(current_process->page_table);
 
     for (size_t i = 0; i < num_pages_to_free; i++) {
       uintptr_t page_to_free = new_end + i * page_size;
       uintptr_t phys_addr = 0;
 
       mm_result_t result =
-          unmap_page(root_table, (void*)page_to_free, &phys_addr);
+          unmap_page(root_table, (void *)page_to_free, &phys_addr);
 
       if (result == MM_SUCCESS && phys_addr != 0) {
-        pmm_free((void*)phys_addr);
+        pmm_free((void *)phys_addr);
         continue;
       }
 
@@ -443,13 +445,13 @@ static inline uintptr_t process_set_brk(uintptr_t new_brk) {
   return current_process->brk;
 }
 
-void sys_brk(syscall_frame_t* frame) {
+void sys_brk(syscall_frame_t *frame) {
   uintptr_t new_brk = (uintptr_t)frame->arg1;
   uintptr_t result = process_set_brk(new_brk);
   frame->syscall_num = result;
 
 #ifdef PROCESS_DEBUG
-  process_t* current_process = scheduler_get_current_process();
+  process_t *current_process = scheduler_get_current_process();
   log_print("sys_brk: New brk set to 0x%lx for process '%s' (PID: %zu)\n",
             result, current_process->name, current_process->pid);
   if (current_process) {
@@ -458,8 +460,8 @@ void sys_brk(syscall_frame_t* frame) {
 #endif
 }
 
-void sys_getpid(syscall_frame_t* frame) {
-  process_t* current_process = scheduler_get_current_process();
+void sys_getpid(syscall_frame_t *frame) {
+  process_t *current_process = scheduler_get_current_process();
 
   if (current_process == NULL) {
     frame->syscall_num = (size_t)-1;
@@ -469,10 +471,10 @@ void sys_getpid(syscall_frame_t* frame) {
   frame->syscall_num = current_process->pid;
 }
 
-void kprocess_init(process_t* process) {
+void kprocess_init(process_t *process) {
   kstrcpy(process->name, "kernel");
 
-  process->page_table = (void*)mm_get_kernel_root_table();
+  process->page_table = (void *)mm_get_kernel_root_table();
   process->thread_list_start = NULL;
   process->thread_list_end = NULL;
   process->vma_head = NULL;
@@ -482,10 +484,34 @@ void kprocess_init(process_t* process) {
   process->mmap_vma = NULL;
   process->alive_threads = 0;
 
+  void *file_descriptor = kmalloc(sizeof(void *) * MAX_SYSTEM_OPEN_FILES);
+
+  if (!file_descriptor) {
+#ifdef PROCESS_DEBUG
+    log_error("Failed to allocate file descriptor array for kernel process");
+#endif
+  }
+
+  kmemset(file_descriptor, 0, sizeof(void *) * MAX_SYSTEM_OPEN_FILES);
+
+  process->open_files = (struct file **)file_descriptor;
+
   spinlock_init(&process->lock);
+
+  // open stdin, stdout, stderr for kernel process
+  process->open_files[0] = fs_open("/dev/console", VFS_O_RDONLY);
+  process->open_files[1] = fs_open("/dev/console", VFS_O_WRONLY);
+  process->open_files[2] = fs_open("/dev/console", VFS_O_WRONLY);
+
+  if (!process->open_files[0] || !process->open_files[1] ||
+      !process->open_files[2]) {
+#ifdef PROCESS_DEBUG
+    log_error("Failed to open standard file descriptors for kernel process");
+#endif
+  }
 }
 
-static bool user_process_init(process_t* process, char* name) {
+static bool user_process_init(process_t *process, char *name) {
   if (process == NULL) {
     return false;
   }
@@ -502,7 +528,7 @@ static bool user_process_init(process_t* process, char* name) {
     return false;
   }
 
-  process->page_table = (void*)addr;
+  process->page_table = (void *)addr;
   process->thread_list_start = NULL;
   process->thread_list_end = NULL;
   process->vma_head = NULL;
@@ -512,13 +538,25 @@ static bool user_process_init(process_t* process, char* name) {
   process->mmap_vma = NULL;
   process->alive_threads = 0;
 
+  void *file_descriptor = kmalloc(sizeof(void *) * MAX_SYSTEM_OPEN_FILES);
+
+  if (!file_descriptor) {
+#ifdef PROCESS_DEBUG
+    log_error("Failed to allocate file descriptor array for kernel process");
+#endif
+  }
+
+  kmemset(file_descriptor, 0, sizeof(void *) * MAX_SYSTEM_OPEN_FILES);
+
+  process->open_files = (struct file **)file_descriptor;
+
   spinlock_init(&process->lock);
 
   return true;
 }
 
-int load_user_process(process_t** process, const char* elf_path, void* arg) {
-  void* entry_point;
+int load_user_process(process_t **process, const char *elf_path, void *arg) {
+  void *entry_point;
   process_t temp_process = {0};
 
 #ifdef PROCESS_DEBUG
@@ -545,7 +583,7 @@ int load_user_process(process_t** process, const char* elf_path, void* arg) {
   unsigned long flags;
   SPIN_LOCK_ACQUIRE(&scheduler_state_lock, flags);
 
-  process_t* new_process = scheduler_add_process();
+  process_t *new_process = scheduler_add_process();
 
   if (new_process == NULL) {
     SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
@@ -575,8 +613,8 @@ int load_user_process(process_t** process, const char* elf_path, void* arg) {
   new_process->vma_head = temp_process.vma_head;
   new_process->vma_tail = temp_process.vma_tail;
 
-  void (*user_main)(void*) = (void (*)(void*))entry_point;
-  thread_t* main_thread = scheduler_add_thread(new_process);
+  void (*user_main)(void *) = (void (*)(void *))entry_point;
+  thread_t *main_thread = scheduler_add_thread(new_process);
 
   if (main_thread == NULL) {
     scheduler_remove_process(new_process->pid);
@@ -588,7 +626,7 @@ int load_user_process(process_t** process, const char* elf_path, void* arg) {
     return -1;
   }
 
-  void* root_table = phys_to_virt(new_process->page_table);
+  void *root_table = phys_to_virt(new_process->page_table);
 
   // Allocate stack for the thread
   mm_result_t mm_result;
@@ -607,7 +645,7 @@ int load_user_process(process_t** process, const char* elf_path, void* arg) {
     return false;
   }
 
-  if (!pthread_init(new_process, "main", main_thread, (void*)stack_base,
+  if (!pthread_init(new_process, "main", main_thread, (void *)stack_base,
                     user_main, arg)) {
     scheduler_remove_thread(new_process, main_thread->tid);
     scheduler_remove_process(new_process->pid);
@@ -637,7 +675,7 @@ int load_user_process(process_t** process, const char* elf_path, void* arg) {
   uintptr_t heap_start = new_process->vma_tail->vm_end;
 
   heap_start = page_align_up(heap_start, page_size);
-  heap_start += page_size;  // Skip the guard page
+  heap_start += page_size; // Skip the guard page
 
   vma_t vma = {
       .vm_start = heap_start,
@@ -648,7 +686,7 @@ int load_user_process(process_t** process, const char* elf_path, void* arg) {
       .file_size = 0,
   };
 
-  vma_t* heap_vma = vma_add(new_process, &vma);
+  vma_t *heap_vma = vma_add(new_process, &vma);
 
   if (!heap_vma) {
     scheduler_remove_thread(new_process, main_thread->tid);
@@ -666,16 +704,16 @@ int load_user_process(process_t** process, const char* elf_path, void* arg) {
 
   uintptr_t mmap_start = (uintptr_t)mm_get_user_mmap_base();
   mmap_start = page_align_down(mmap_start, page_size);
-  mmap_start -= page_size;  // Skip the guard page
+  mmap_start -= page_size; // Skip the guard page
 
   vma.vm_start = mmap_start;
   vma.vm_end = mmap_start + page_size;
-  vma.flags = VMA_GUARD;  // No specific flags for mmap
+  vma.flags = VMA_GUARD; // No specific flags for mmap
   vma.file = NULL;
   vma.file_offset = 0;
   vma.file_size = 0;
 
-  vma_t* mmap_vma = vma_add(new_process, &vma);
+  vma_t *mmap_vma = vma_add(new_process, &vma);
 
   if (!mmap_vma) {
     scheduler_remove_thread(new_process, main_thread->tid);
@@ -737,7 +775,7 @@ static inline bool handle_user_page_fault(uintptr_t faulting_address) {
   log_debug("User Page Fault Handler:\n");
 #endif
   const size_t page_size = mm_get_page_size();
-  process_t* current_process = scheduler_get_current_process();
+  process_t *current_process = scheduler_get_current_process();
 
   if (current_process == NULL) {
 #ifdef PAGE_FAULT_DEBUG
@@ -754,20 +792,19 @@ static inline bool handle_user_page_fault(uintptr_t faulting_address) {
             scheduler_get_current_thread()->tid);
 #endif
 
-  void* page_start_addr = (void*)page_align_down(faulting_address, page_size);
-  void* page_phys_addr = pmm_alloc(page_size);
+  void *page_start_addr = (void *)page_align_down(faulting_address, page_size);
+  void *page_phys_addr = pmm_alloc(page_size);
 
   if (page_phys_addr == NULL) {
 #ifdef PAGE_FAULT_DEBUG
-    log_error(
-        "Failed to allocate physical page for user page fault at address "
-        "0x%lx",
-        faulting_address);
+    log_error("Failed to allocate physical page for user page fault at address "
+              "0x%lx",
+              faulting_address);
 #endif
     return false;
   }
 
-  void* buffer = kmalloc(page_size);
+  void *buffer = kmalloc(page_size);
 
   if (buffer == NULL) {
 #ifdef PAGE_FAULT_DEBUG
@@ -778,10 +815,10 @@ static inline bool handle_user_page_fault(uintptr_t faulting_address) {
     return false;
   }
 
-  void* page_virt_addr = phys_to_virt(page_phys_addr);
+  void *page_virt_addr = phys_to_virt(page_phys_addr);
 
   // Check if the faulting address falls within any of the process's VMAs
-  vma_t* current_vma = current_process->vma_head;
+  vma_t *current_vma = current_process->vma_head;
   mm_flags_t flags = MM_FLAG_USER;
   bool is_any_segment_found = false;
 
@@ -819,8 +856,8 @@ static inline bool handle_user_page_fault(uintptr_t faulting_address) {
       size_t file_offset =
           current_vma->file_offset + (start - current_vma->vm_start);
 
-      vfs_seek(current_vma->file, file_offset);
-      int ret = vfs_read(current_vma->file, buffer, overlap_size);
+      fs_lseek(current_vma->file, file_offset, VFS_SEEK_SET);
+      int ret = fs_read(current_vma->file, buffer, overlap_size);
 
       if (ret < 0) {
 #ifdef PAGE_FAULT_DEBUG
@@ -834,7 +871,7 @@ static inline bool handle_user_page_fault(uintptr_t faulting_address) {
       }
 
       uintptr_t addr_offset = start - (uintptr_t)page_start_addr;
-      void* dest_addr = (void*)((uintptr_t)page_virt_addr + addr_offset);
+      void *dest_addr = (void *)((uintptr_t)page_virt_addr + addr_offset);
 
 #ifdef PAGE_FAULT_DEBUG
       log_print("  File-Backed VMA:\n", ret);
@@ -852,7 +889,7 @@ static inline bool handle_user_page_fault(uintptr_t faulting_address) {
       }
 
       uintptr_t addr_offset = start - (uintptr_t)page_start_addr;
-      void* dest_addr = (void*)((uintptr_t)page_virt_addr + addr_offset);
+      void *dest_addr = (void *)((uintptr_t)page_virt_addr + addr_offset);
 
 #ifdef PAGE_FAULT_DEBUG
       log_print("  Anonymous VMA:\n");
@@ -878,7 +915,7 @@ static inline bool handle_user_page_fault(uintptr_t faulting_address) {
     return false;
   }
 
-  void* root_table = phys_to_virt(current_process->page_table);
+  void *root_table = phys_to_virt(current_process->page_table);
   mm_result_t result =
       map_page(root_table, page_start_addr, page_phys_addr, flags);
 
@@ -897,7 +934,7 @@ static inline bool handle_user_page_fault(uintptr_t faulting_address) {
   return true;
 }
 
-void page_fault_isr_handler(struct interrupt_ecframe_s* frame) {
+void page_fault_isr_handler(struct interrupt_ecframe_s *frame) {
   uintptr_t faulting_address = page_fault_addr();
 
 #ifdef PAGE_FAULT_DEBUG
@@ -972,15 +1009,16 @@ void page_fault_isr_handler(struct interrupt_ecframe_s* frame) {
              faulting_address, frame->rip);
   log_error("Segmentation fault at address 0x%lx, RIP: 0x%lx", faulting_address,
             frame->rip);
-  while (1);
+  while (1)
+    ;
 }
 
-bool vma_add_nullspace(process_t* process, uintptr_t start, uintptr_t end) {
+bool vma_add_nullspace(process_t *process, uintptr_t start, uintptr_t end) {
   if (process == NULL || start >= end) {
     return false;
   }
 
-  vma_t* new_vma = kmalloc(sizeof(vma_t));
+  vma_t *new_vma = kmalloc(sizeof(vma_t));
 
   if (new_vma == NULL) {
     return false;
@@ -996,8 +1034,8 @@ bool vma_add_nullspace(process_t* process, uintptr_t start, uintptr_t end) {
   return vma_add(process, new_vma);
 }
 
-vma_t* vma_add(process_t* process, vma_t* vma) {
-  vma_t* new_vma = kmalloc(sizeof(vma_t));
+vma_t *vma_add(process_t *process, vma_t *vma) {
+  vma_t *new_vma = kmalloc(sizeof(vma_t));
 
   if (new_vma == NULL) {
     return NULL;
@@ -1025,7 +1063,7 @@ vma_t* vma_add(process_t* process, vma_t* vma) {
     return new_vma;
   }
 
-  vma_t* current = process->vma_head;
+  vma_t *current = process->vma_head;
 
   while (current->next != NULL) {
     if (current->next->vm_start > new_vma->vm_start) {
@@ -1043,11 +1081,11 @@ vma_t* vma_add(process_t* process, vma_t* vma) {
     return new_vma;
   }
 
-  process->vma_tail = new_vma;  // Update tail if added at the end
+  process->vma_tail = new_vma; // Update tail if added at the end
   return new_vma;
 }
 
-bool vma_remove(process_t* process, vma_t* vma) {
+bool vma_remove(process_t *process, vma_t *vma) {
   if (process->vma_head == NULL) {
     return false;
   }
@@ -1058,14 +1096,14 @@ bool vma_remove(process_t* process, vma_t* vma) {
     if (process->vma_head != NULL) {
       process->vma_head->prev = NULL;
     } else {
-      process->vma_tail = NULL;  // List is now empty
+      process->vma_tail = NULL; // List is now empty
     }
 
     kfree(vma);
     return true;
   }
 
-  vma_t* current = process->vma_head;
+  vma_t *current = process->vma_head;
 
   while (current->next != NULL) {
     if (current->next == vma) {
@@ -1086,14 +1124,14 @@ bool vma_remove(process_t* process, vma_t* vma) {
   return false;
 }
 
-void vma_free(process_t* process) {
-  vma_t* current = process->vma_head;
+void vma_free(process_t *process) {
+  vma_t *current = process->vma_head;
 
   while (current != NULL) {
-    vma_t* next = current->next;
+    vma_t *next = current->next;
 
     if (current->file != NULL) {
-      vfs_close(current->file);
+      fs_close(current->file);
     }
 
     kfree(current);
@@ -1103,8 +1141,8 @@ void vma_free(process_t* process) {
   process->vma_head = NULL;
 }
 
-void vma_print(process_t* process) {
-  vma_t* current = process->vma_head;
+void vma_print(process_t *process) {
+  vma_t *current = process->vma_head;
 
   log_print("VMAs for process '%s' (PID: %zu):\n", process->name, process->pid);
 
@@ -1119,14 +1157,14 @@ void vma_print(process_t* process) {
             process->vma_tail ? process->vma_tail->vm_start : 0);
 }
 
-bool vma_find_gap(vma_t* vma_head, bool reverse, uintptr_t size,
-                  uintptr_t* gap_start) {
+bool vma_find_gap(vma_t *vma_head, bool reverse, uintptr_t size,
+                  uintptr_t *gap_start) {
   if (vma_head == NULL || size == 0) {
     return false;
   }
 
   if (!reverse) {
-    vma_t* current = vma_head;
+    vma_t *current = vma_head;
 
     // Start searching from the provided start address
     uint64_t start_addr = current->vm_start;
@@ -1147,7 +1185,7 @@ bool vma_find_gap(vma_t* vma_head, bool reverse, uintptr_t size,
   }
 
   // find gap from top
-  vma_t* current = vma_head;
+  vma_t *current = vma_head;
 
   // Start searching from the provided start address
   uint64_t end_addr = current->vm_end;

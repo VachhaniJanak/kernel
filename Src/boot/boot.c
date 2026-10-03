@@ -3,43 +3,46 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <utils/utils.h>
 
-__attribute__((used,
-               section(".limine_requests_start"))) static volatile uint64_t
-    limine_requests_start_marker[] = LIMINE_REQUESTS_START_MARKER;
+#define LIMINE_REQUESTS_START \
+  __attribute__((used, section(".limine_requests_start")))
 
-__attribute__((used, section(".limine_requests"))) static volatile uint64_t
-    limine_base_revision[] = LIMINE_BASE_REVISION(6);
+#define LIMINE_REQUESTS __attribute__((used, section(".limine_requests")))
 
-__attribute__((
-    used,
-    section(
-        ".limine_requests"))) static volatile struct limine_framebuffer_request
+#define LIMINE_REQUESTS_END \
+  __attribute__((used, section(".limine_requests_end")))
+
+LIMINE_REQUESTS_START static volatile uint64_t limine_requests_start_marker[] =
+    LIMINE_REQUESTS_START_MARKER;
+
+LIMINE_REQUESTS static volatile uint64_t limine_base_revision[] =
+    LIMINE_BASE_REVISION(6);
+
+LIMINE_REQUESTS static volatile struct limine_framebuffer_request
     framebuffer_request = {.id = LIMINE_FRAMEBUFFER_REQUEST_ID, .revision = 0};
 
-__attribute__((
-    used,
-    section(".limine_requests"))) static volatile struct limine_memmap_request
-    memmap_request = {.id = LIMINE_MEMMAP_REQUEST_ID, .revision = 0};
+LIMINE_REQUESTS static volatile struct limine_memmap_request memmap_request = {
+    .id = LIMINE_MEMMAP_REQUEST_ID, .revision = 0};
 
-__attribute__((
-    used,
-    section(".limine_requests"))) static volatile struct limine_hhdm_request
-    hhdm_request = {.id = LIMINE_HHDM_REQUEST_ID, .revision = 0};
+LIMINE_REQUESTS static volatile struct limine_hhdm_request hhdm_request = {
+    .id = LIMINE_HHDM_REQUEST_ID, .revision = 0};
 
-__attribute__((
-    used,
-    section(".limine_requests"))) static volatile struct limine_rsdp_request
-    rsdp_request = {.id = LIMINE_RSDP_REQUEST_ID, .revision = 0};
+LIMINE_REQUESTS static volatile struct limine_rsdp_request rsdp_request = {
+    .id = LIMINE_RSDP_REQUEST_ID, .revision = 0};
 
-__attribute__((used, section(".limine_requests_end"))) static volatile uint64_t
-    limine_requests_end_marker[] = LIMINE_REQUESTS_END_MARKER;
+LIMINE_REQUESTS static volatile struct limine_executable_file_request
+    exec_file_request = {.id = LIMINE_EXECUTABLE_FILE_REQUEST_ID,
+                         .revision = 0};
+
+LIMINE_REQUESTS_END static volatile uint64_t limine_requests_end_marker[] =
+    LIMINE_REQUESTS_END_MARKER;
 
 bool isBootOk(void) {
   return LIMINE_BASE_REVISION_SUPPORTED(limine_base_revision);
 }
 
-void getFramebufferAddr(struct FrameBuffer_s *framebuffer) {
+void getFramebufferAddr(struct FrameBuffer_s* framebuffer) {
   if (framebuffer_request.response == NULL ||
       framebuffer_request.response->framebuffer_count < 1) {
     framebuffer->address = NULL;
@@ -68,19 +71,18 @@ void getFramebufferAddr(struct FrameBuffer_s *framebuffer) {
 }
 
 size_t getMMapEntryCount(void) {
-  if (memmap_request.response == NULL)
-    return 0;
+  if (memmap_request.response == NULL) return 0;
   return memmap_request.response->entry_count;
 }
 
-bool copyMMapEntry(struct MemoryMapEntry_s *dest) {
+bool copyMMapEntry(struct MemoryMapEntry_s* dest) {
   if (memmap_request.response == NULL ||
       memmap_request.response->entry_count < 1) {
     return false;
   }
 
   for (size_t i = 0; i < memmap_request.response->entry_count; i++) {
-    struct limine_memmap_entry *entry = memmap_request.response->entries[i];
+    struct limine_memmap_entry* entry = memmap_request.response->entries[i];
 
     dest[i].base = entry->base;
     dest[i].length = entry->length;
@@ -91,14 +93,39 @@ bool copyMMapEntry(struct MemoryMapEntry_s *dest) {
 }
 
 uintptr_t getHHDMOffset(void) {
-  if (hhdm_request.response == NULL)
-    return 0;
+  if (hhdm_request.response == NULL) return 0;
 
   return hhdm_request.response->offset;
 }
 
-void *getRSDT(void) {
-  if (rsdp_request.response == NULL)
-    return NULL;
+void* getRSDT(void) {
+  if (rsdp_request.response == NULL) return NULL;
   return rsdp_request.response->address;
+}
+
+bool getBootVolumeInfo(struct boot_volume_info* volume) {
+  if (exec_file_request.response == NULL) {
+    return false;
+  }
+
+  struct limine_executable_file_response* exec_file_response =
+      exec_file_request.response;
+
+  if (exec_file_response->executable_file->mbr_disk_id != 0) {
+    volume->type = BOOT_VOLUME_TYPE_MBR;
+    return false;
+  }
+
+  volume->type = BOOT_VOLUME_TYPE_GPT;
+  volume->partition_index =
+      exec_file_response->executable_file->partition_index;
+
+  kmemcpy(&volume->gpt_disk_uuid,
+          &exec_file_response->executable_file->gpt_disk_uuid,
+          sizeof(struct boot_uuid));
+
+  kmemcpy(&volume->gpt_partition_uuid,
+          &exec_file_response->executable_file->gpt_part_uuid,
+          sizeof(struct boot_uuid));
+  return true;
 }
