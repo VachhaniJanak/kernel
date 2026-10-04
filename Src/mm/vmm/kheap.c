@@ -114,7 +114,7 @@ static inline void kheap_vfree(void* addr) {
 void* khalloc_page(void) {
   mm_flags_t flags = MM_FLAG_WRITABLE | MM_FLAG_READ;
   const size_t page_size = mm_state->page_size;
-  uint8_t* phy_addr = pmm_alloc(page_size);
+  uint8_t* phy_addr = pmm_alloc(&mm_state->pmm_state, page_size);
   void* root_table = mm_get_root_table();
 
   if (phy_addr == NULL) return NULL;
@@ -122,14 +122,14 @@ void* khalloc_page(void) {
   uint8_t* vir_addr = kheap_vaddr();
 
   if (vir_addr == NULL) {
-    pmm_free(phy_addr);
+    pmm_free(&mm_state->pmm_state, phy_addr);
     return NULL;
   }
 
   mm_result_t result = map_page(root_table, vir_addr, phy_addr, flags);
 
   if (result != MM_SUCCESS) {
-    pmm_free(phy_addr);
+    pmm_free(&mm_state->pmm_state, phy_addr);
     kheap_vfree(vir_addr);
     return NULL;
   }
@@ -145,7 +145,7 @@ void khfree_page(void* addr) {
   uintptr_t phys_addr;
   mm_result_t result = unmap_page(root_table, addr, &phys_addr);
 
-  if (result == MM_SUCCESS) pmm_free((void*)phys_addr);
+  if (result == MM_SUCCESS) pmm_free(&mm_state->pmm_state, (void*)phys_addr);
 
   kheap_vfree(addr);
 }

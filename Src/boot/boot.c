@@ -70,28 +70,6 @@ void getFramebufferAddr(struct FrameBuffer_s* framebuffer) {
       framebuffer_request.response->framebuffers[0]->green_mask_shift;
 }
 
-size_t getMMapEntryCount(void) {
-  if (memmap_request.response == NULL) return 0;
-  return memmap_request.response->entry_count;
-}
-
-bool copyMMapEntry(struct MemoryMapEntry_s* dest) {
-  if (memmap_request.response == NULL ||
-      memmap_request.response->entry_count < 1) {
-    return false;
-  }
-
-  for (size_t i = 0; i < memmap_request.response->entry_count; i++) {
-    struct limine_memmap_entry* entry = memmap_request.response->entries[i];
-
-    dest[i].base = entry->base;
-    dest[i].length = entry->length;
-    dest[i].type = entry->type;
-  }
-
-  return true;
-}
-
 uintptr_t getHHDMOffset(void) {
   if (hhdm_request.response == NULL) return 0;
 
@@ -128,4 +106,71 @@ bool getBootVolumeInfo(struct boot_volume_info* volume) {
           &exec_file_response->executable_file->gpt_part_uuid,
           sizeof(struct boot_uuid));
   return true;
+}
+
+int boot_iterate_mmap_entries(int* saved_index, void* context,
+                              int (*callback)(void* context,
+                                              struct MemoryMapEntry_s* entry)) {
+  if (!callback || !saved_index || !memmap_request.response ||
+      memmap_request.response->entry_count < 1) {
+    return -1;
+  }
+
+  struct MemoryMapEntry_s temp = {0};
+
+  for (int i = *saved_index; i < memmap_request.response->entry_count; i++) {
+    struct limine_memmap_entry* entry = memmap_request.response->entries[i];
+
+    temp.base = entry->base;
+    temp.length = entry->length;
+    temp.type = entry->type;
+
+    if (callback(context, &temp) > 0) {
+      *saved_index = i;
+      return 1;
+    }
+  }
+
+  *saved_index = memmap_request.response->entry_count;
+  return 0;
+}
+
+int boot_get_mmap_entry(int index, struct MemoryMapEntry_s* entry) {
+  if (memmap_request.response == NULL ||
+      index >= memmap_request.response->entry_count) {
+    return -1;
+  }
+
+  struct limine_memmap_entry* target = memmap_request.response->entries[index];
+
+  entry->base = target->base;
+  entry->length = target->length;
+  entry->type = target->type;
+
+  return 0;
+}
+
+char* boot_get_memory_type_string(size_t type) {
+  switch (type) {
+    case MEMMAP_USABLE:
+      return "Usable";
+    case MEMMAP_RESERVED:
+      return "Reserved";
+    case MEMMAP_ACPI_RECLAIMABLE:
+      return "ACPI Reclaimable";
+    case MEMMAP_ACPI_NVS:
+      return "ACPI NVS";
+    case MEMMAP_BAD_MEMORY:
+      return "Bad Memory";
+    case MEMMAP_BOOTLOADER_RECLAIMABLE:
+      return "Bootloader Reclaimable";
+    case MEMMAP_EXECUTABLE_AND_MODULES:
+      return "Executable and Modules";
+    case MEMMAP_FRAMEBUFFER:
+      return "Framebuffer";
+    case MEMMAP_RESERVED_MAPPED:
+      return "Reserved Mapped";
+    default:
+      return "Unknown";
+  }
 }

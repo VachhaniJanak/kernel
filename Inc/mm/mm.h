@@ -1,5 +1,6 @@
 #pragma once
 
+#include <mm/pmm/pmm.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -49,11 +50,7 @@ struct vm_area_s {
 };
 
 struct mm_state_s {
-  uintptr_t physical_memory_base;
-  size_t physical_memory_size;
-
   uintptr_t hhdm_offset;
-
   size_t page_size;
 
   void* kernel_root_table;
@@ -81,6 +78,7 @@ struct mm_state_s {
   uintptr_t user_mmap_base;
 
   struct vm_area_s stack_state;
+  struct pmm_state_s pmm_state;
 };
 
 static inline void* virt_to_phys(void* ptr) {
@@ -98,14 +96,6 @@ int mm_init(void);
 bool mmap(void* virt_addr, void* phys_addr);
 
 void ummap(void* virt_addr);
-
-bool map_userspace(void* virt_addr, void* phys_addr, mm_flags_t flags);
-
-void unmap_userspace(void* virt_addr);
-
-bool allocate_userspace(void* virt_addr, size_t size, mm_flags_t flags);
-
-void free_userspace(void* addr, size_t size);
 
 uint64_t mm_get_mmu_flags(mm_flags_t flags);
 

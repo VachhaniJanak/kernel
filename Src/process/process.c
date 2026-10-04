@@ -29,6 +29,8 @@
 // #define PAGE_FAULT_DEBUG
 
 extern spinlock_t scheduler_state_lock;
+extern struct mm_state_s mm_state;
+
 
 static inline size_t max(size_t a, size_t b) { return (a > b) ? a : b; }
 
@@ -144,7 +146,7 @@ static inline void free_vma_pages(uintptr_t start, uintptr_t end,
         unmap_page(root_table, (void *)page_to_free, &phys_addr);
 
     if (result == MM_SUCCESS && phys_addr != 0) {
-      pmm_free((void *)phys_addr);
+      pmm_free(&mm_state.pmm_state, (void *)phys_addr);
       continue;
     }
 
@@ -427,7 +429,7 @@ static inline uintptr_t process_set_brk(uintptr_t new_brk) {
           unmap_page(root_table, (void *)page_to_free, &phys_addr);
 
       if (result == MM_SUCCESS && phys_addr != 0) {
-        pmm_free((void *)phys_addr);
+        pmm_free(&mm_state.pmm_state,(void *)phys_addr);
         continue;
       }
 
@@ -793,7 +795,7 @@ static inline bool handle_user_page_fault(uintptr_t faulting_address) {
 #endif
 
   void *page_start_addr = (void *)page_align_down(faulting_address, page_size);
-  void *page_phys_addr = pmm_alloc(page_size);
+  void *page_phys_addr = pmm_alloc(&mm_state.pmm_state,page_size);
 
   if (page_phys_addr == NULL) {
 #ifdef PAGE_FAULT_DEBUG
@@ -811,7 +813,7 @@ static inline bool handle_user_page_fault(uintptr_t faulting_address) {
     log_error("Failed to allocate buffer for user page fault at address 0x%lx",
               faulting_address);
 #endif
-    pmm_free(page_phys_addr);
+    pmm_free(&mm_state.pmm_state,page_phys_addr);
     return false;
   }
 
@@ -866,7 +868,7 @@ static inline bool handle_user_page_fault(uintptr_t faulting_address) {
             faulting_address);
 #endif
         kfree(buffer);
-        pmm_free(page_phys_addr);
+        pmm_free(&mm_state.pmm_state,page_phys_addr);
         return false;
       }
 
@@ -911,7 +913,7 @@ static inline bool handle_user_page_fault(uintptr_t faulting_address) {
         faulting_address, current_process->name, current_process->pid);
 #endif
     kfree(buffer);
-    pmm_free(page_phys_addr);
+    pmm_free(&mm_state.pmm_state,page_phys_addr);
     return false;
   }
 
@@ -925,7 +927,7 @@ static inline bool handle_user_page_fault(uintptr_t faulting_address) {
         "Failed to map page for user page fault at address 0x%lx, Error: %d",
         faulting_address, result);
 #endif
-    pmm_free(page_phys_addr);
+    pmm_free(&mm_state.pmm_state,page_phys_addr);
     kfree(buffer);
     return false;
   }

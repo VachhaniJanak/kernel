@@ -83,12 +83,12 @@ mm_result_t map_page(void* root_table, void* virt_addr, void* phys_addr,
 
   // check if the entry is present
   if (!(pml4[pml4_idx] & MMU_PRESENT)) {
-    uint64_t* new_table = pmm_alloc(PDPT_SIZE);
+    uint64_t* new_table = pmm_alloc(&mm_state->pmm_state, PDPT_SIZE);
     if (new_table == NULL) return MM_ERR_OUT_OF_MEMORY;
 
 #ifdef DEBUG
     if (!is_page_aligned((uintptr_t)new_table, PDPT_ALIGNMENT)) {
-      pmm_free(new_table);
+      pmm_free(&mm_state->pmm_state,new_table);
       return MM_ERR_INVALID_PM_ALIGNMENT;
     }
 #endif
@@ -121,12 +121,12 @@ mm_result_t map_page(void* root_table, void* virt_addr, void* phys_addr,
 
   // check if the entry is present
   if (!(pdpt[pdpt_idx] & MMU_PRESENT)) {
-    uint64_t* new_table = pmm_alloc(PD_SIZE);
+    uint64_t* new_table = pmm_alloc(&mm_state->pmm_state, PD_SIZE);
     if (new_table == NULL) return MM_ERR_OUT_OF_MEMORY;
 
 #ifdef DEBUG
     if (!is_page_aligned((uintptr_t)new_table, PD_ALIGNMENT)) {
-      pmm_free(new_table);
+      pmm_free(&mm_state->pmm_state,new_table);
       return MM_ERR_INVALID_PM_ALIGNMENT;
     }
 #endif
@@ -163,12 +163,12 @@ mm_result_t map_page(void* root_table, void* virt_addr, void* phys_addr,
 
   // check if the entry is present
   if (!(pd[pd_idx] & MMU_PRESENT)) {
-    uint64_t* new_table = pmm_alloc(PT_SIZE);
+    uint64_t* new_table = pmm_alloc(&mm_state->pmm_state,PT_SIZE);
     if (new_table == NULL) return MM_ERR_OUT_OF_MEMORY;
 
 #ifdef DEBUG
     if (!is_page_aligned((uintptr_t)new_table, PT_ALIGNMENT)) {
-      pmm_free(new_table);
+      pmm_free(&mm_state->pmm_state,new_table);
       return MM_ERR_INVALID_PM_ALIGNMENT;
     }
 #endif
@@ -234,7 +234,7 @@ mm_result_t unmap_page(void* root_table, void* virt_addr,
     // pml4
     if (is_page_table_empty(pdpt, PDPT_NUM_ENTRIES)) {
       pml4[pml4_idx] = 0;
-      pmm_free(virt_to_phys(pdpt));
+      pmm_free(&mm_state->pmm_state,virt_to_phys(pdpt));
     }
 
     return MM_SUCCESS;
@@ -260,14 +260,14 @@ mm_result_t unmap_page(void* root_table, void* virt_addr,
     // pdpt
     if (is_page_table_empty(pd, PD_NUM_ENTRIES)) {
       pdpt[pdpt_idx] = 0;
-      pmm_free(virt_to_phys(pd));
+      pmm_free(&mm_state->pmm_state,virt_to_phys(pd));
     }
 
     // check if the pdpt is empty, if it is, free it and remove the entry from
     // pml4
     if (is_page_table_empty(pdpt, PDPT_NUM_ENTRIES)) {
       pml4[pml4_idx] = 0;
-      pmm_free(virt_to_phys(pdpt));
+      pmm_free(&mm_state->pmm_state,virt_to_phys(pdpt));
     }
 
     return MM_SUCCESS;
@@ -289,13 +289,13 @@ mm_result_t unmap_page(void* root_table, void* virt_addr,
   // check if the pt is empty, if it is, free it and remove the entry from pd
   if (is_page_table_empty(pt, PT_NUM_ENTRIES)) {
     pd[pd_idx] = 0;
-    pmm_free(virt_to_phys(pt));
+    pmm_free(&mm_state->pmm_state,virt_to_phys(pt));
   }
 
   // check if the pd is empty, if it is, free it and remove the entry from pdpt
   if (is_page_table_empty(pd, PD_NUM_ENTRIES)) {
     pdpt[pdpt_idx] = 0;
-    pmm_free(virt_to_phys(pd));
+    pmm_free(&mm_state->pmm_state,virt_to_phys(pd));
   }
 
   // check if the pdpt is empty, if it is, free it and remove the entry from
@@ -303,7 +303,7 @@ mm_result_t unmap_page(void* root_table, void* virt_addr,
 
   if (is_page_table_empty(pdpt, PDPT_NUM_ENTRIES)) {
     pml4[pml4_idx] = 0;
-    pmm_free(virt_to_phys(pdpt));
+    pmm_free(&mm_state->pmm_state,virt_to_phys(pdpt));
   }
 
   return MM_SUCCESS;
@@ -672,14 +672,14 @@ static inline void vfree_vaddr(void* addr, size_t size) {
 void* valloc_page(void) {
   mm_flags_t flags = MMU_WRITABLE;
   const size_t page_size = mm_state->page_size;
-  uint8_t* phy_addr = pmm_alloc(page_size);
+  uint8_t* phy_addr = pmm_alloc(&mm_state->pmm_state,page_size);
 
   if (phy_addr == NULL) return NULL;
 
   uint8_t* vir_addr = vmalloc_vaddr(page_size);
 
   if (vir_addr == NULL) {
-    pmm_free(phy_addr);
+    pmm_free(&mm_state->pmm_state,phy_addr);
     return NULL;
   }
 
@@ -687,7 +687,7 @@ void* valloc_page(void) {
   mm_result_t result = map_page(root_table, vir_addr, phy_addr, flags);
 
   if (result != MM_SUCCESS) {
-    pmm_free(phy_addr);
+    pmm_free(&mm_state->pmm_state,phy_addr);
     vfree_vaddr(vir_addr, page_size);
 #ifdef DEBUG
     log_error("Failed to map page, error code: %d\n", result);
@@ -709,7 +709,7 @@ void vfree_page(void* addr) {
   mm_result_t result = unmap_page(root_table, addr, &phys_addr);
 
   if (result == MM_SUCCESS) {
-    pmm_free((void*)phys_addr);
+    pmm_free(&mm_state->pmm_state,(void*)phys_addr);
   }
 
   vfree_vaddr(addr, mm_state->page_size);
@@ -722,13 +722,13 @@ void* vmalloc(size_t size, mm_flags_t flags, bool continuous) {
   size = page_align_up(size, page_size);
   const size_t no_pages = size / page_size;
 
-  if (!pmm_pages_avaliable(no_pages)) return NULL;
+  if (!pmm_is_pages_avaliable(&mm_state->pmm_state, no_pages)) return NULL;
 
-  uint8_t* phy_addr = pmm_alloc(size);
+  uint8_t* phy_addr = pmm_alloc(&mm_state->pmm_state,size);
   uint8_t* vir_addr = vmalloc_vaddr(size);
 
   if (vir_addr == NULL) {
-    pmm_free(phy_addr);
+    pmm_free(&mm_state->pmm_state,phy_addr);
     return NULL;
   }
 
@@ -752,7 +752,7 @@ void* vmalloc(size_t size, mm_flags_t flags, bool continuous) {
   // if not, then allocate non continues physical pages
   for (size_t i = 0; i < no_pages; i++) {
     uint8_t* v_addr = vir_addr + page_size * i;
-    void* p_addr = pmm_alloc(page_size);
+    void* p_addr = pmm_alloc(&mm_state->pmm_state, page_size);
 
     if (p_addr != NULL) {
       map_page(root_table, v_addr, p_addr, flags);
@@ -766,7 +766,7 @@ void* vmalloc(size_t size, mm_flags_t flags, bool continuous) {
       uintptr_t p_addr;
       mm_result_t result = unmap_page(root_table, v_addr, &p_addr);
 
-      if (result == MM_SUCCESS) pmm_free((void*)p_addr);
+      if (result == MM_SUCCESS) pmm_free(&mm_state->pmm_state,(void*)p_addr);
     }
     vfree_vaddr(vir_addr, size);
   }
@@ -799,7 +799,7 @@ void vfree(void* addr) {
       unmap_page(root_table, v_addr, &phys_addr);
     }
 
-    if (result != MM_SUCCESS) pmm_free((void*)phys_addr);
+    if (result != MM_SUCCESS) pmm_free(&mm_state->pmm_state,(void*)phys_addr);
 
     return;
   }
@@ -809,7 +809,7 @@ void vfree(void* addr) {
     uintptr_t p_addr;
     mm_result_t result = unmap_page(root_table, v_addr, &p_addr);
 
-    if (result == MM_SUCCESS) pmm_free((void*)p_addr);
+    if (result == MM_SUCCESS) pmm_free(&mm_state->pmm_state,(void*)p_addr);
   }
 }
 

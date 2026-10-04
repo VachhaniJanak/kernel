@@ -17,6 +17,7 @@
 // #define CLEANUP_DEBUG
 
 extern spinlock_t scheduler_state_lock;
+extern struct mm_state_s mm_state;
 
 static struct reaper_state_s reaper_state = {0};
 
@@ -77,7 +78,7 @@ static inline void reaper_cleanup_process(process_t *process) {
           unmap_page((void *)root_table, (void *)virt_addr, &phys_addr);
 
       if (result == MM_SUCCESS && phys_addr != 0) {
-        pmm_free((void *)phys_addr);
+        pmm_free(&mm_state.pmm_state, (void *)phys_addr);
         continue;
       }
     }
@@ -95,7 +96,7 @@ static inline void reaper_cleanup_process(process_t *process) {
 
   // Free the page table
   if (process->page_table != NULL) {
-    pmm_free((void *)process->page_table);
+    pmm_free(&mm_state.pmm_state, (void *)process->page_table);
   }
 
   // free the open files array

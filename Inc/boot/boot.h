@@ -60,12 +60,16 @@ bool isBootOk(void);
 
 void getFramebufferAddr(struct FrameBuffer_s* framebuffer);
 
-size_t getMMapEntryCount(void);
-
-bool copyMMapEntry(struct MemoryMapEntry_s* dest);
-
 uintptr_t getHHDMOffset(void);
 
 void* getRSDT(void);
 
 bool getBootVolumeInfo(struct boot_volume_info* volume);
+
+int boot_iterate_mmap_entries(int* saved_index, void* context,
+                              int (*callback)(void* context,
+                                              struct MemoryMapEntry_s* entry));
+
+char* boot_get_memory_type_string(size_t type);
+
+int boot_get_mmap_entry(int index, struct MemoryMapEntry_s* entry);

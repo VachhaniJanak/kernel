@@ -55,8 +55,6 @@ void kmain(void) {
 
   mm_init();
 
-  set_stack_top(KERNEL_STACK_BASE);
-
   if (screen_init() != SCREEN_SUCCESS) {
     LOG_ERROR("Framebuffer initialization failed!");
     loop();

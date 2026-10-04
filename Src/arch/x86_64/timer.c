@@ -44,9 +44,12 @@ void timer_init(void) {
     return;
   }
 
-  void* hpetVirtAddr = phys_to_virt((void*)hpet->address);
+  void* hpetVirtAddr;
 
-  if (!mmap(hpetVirtAddr, (void*)hpet->address)) {
+  mm_result_t result =
+      mm_map_io_address((uintptr_t*)&hpetVirtAddr, (void*)hpet->address);
+
+  if (result != MM_SUCCESS) {
     LOG_ERROR("Failed to map HPET registers!");
     return;
   }

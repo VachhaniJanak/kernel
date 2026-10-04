@@ -3,7 +3,7 @@
 #include <mm/pmm/buddy.h>
 #include <mm/slub/slub.h>
 
-void print_buddy_state(buddy_t *buddy);
+// void print_buddy_state(buddy_t *buddy);
 
 void print_kernel_addr(void);
 
