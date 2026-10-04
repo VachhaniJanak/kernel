@@ -122,7 +122,7 @@ run:
 		-cpu host,+apic \
 		-enable-kvm \
 		-smp 1 \
-		-m 512M \
+		-m 512M\
 		-drive file=$(IMG),format=raw,if=none,id=disk0 \
 		-device ich9-ahci,id=ahci \
 		-device ide-hd,drive=disk0,bus=ahci.0 \
