@@ -9,7 +9,7 @@
 #include <fs/fs.h>
 #include <fs/prt/gpt.h>
 #include <libs/string.h>
-#include <mm/vmm/kheap.h>
+#include <mm/kheap/kheap.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <tty/tty.h>
@@ -253,31 +253,31 @@ void create_required_directories(void) {
   rc = fs_mkdir("/mnt", 0755);
 
   if (rc != 0) {
-    log_error("Failed to create /mnt directory. Error code: %d", rc);
+    // log_error("Failed to create /mnt directory. Error code: %d", rc);
   }
 
   rc = fs_mkdir("/dev", 0755);
 
   if (rc != 0) {
-    log_error("Failed to create /dev directory. Error code: %d", rc);
+    // log_error("Failed to create /dev directory. Error code: %d", rc);
   }
 
   rc = fs_mkdir("/tmp", 0777);
 
   if (rc != 0) {
-    log_error("Failed to create /tmp directory. Error code: %d", rc);
+    // log_error("Failed to create /tmp directory. Error code: %d", rc);
   }
 
   rc = fs_mkdir("/proc", 0755);
 
   if (rc != 0) {
-    log_error("Failed to create /proc directory. Error code: %d", rc);
+    // log_error("Failed to create /proc directory. Error code: %d", rc);
   }
 
   rc = fs_mkdir("/sys", 0755);
 
   if (rc != 0) {
-    log_error("Failed to create /sys directory. Error code: %d", rc);
+    // log_error("Failed to create /sys directory. Error code: %d", rc);
   }
 }
 

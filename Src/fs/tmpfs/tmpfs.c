@@ -1,6 +1,6 @@
 #include <fs/fs.h>
 #include <fs/tmpfs/tmpfs.h>
-#include <mm/vmm/kheap.h>
+#include <mm/kheap/kheap.h>
 #include <platform/attributes.h>
 #include <libs/string.h>
 #include <process/locks.h>

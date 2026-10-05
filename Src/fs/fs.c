@@ -5,7 +5,7 @@
 #include <fs/fs.h>
 #include <fs/tmpfs/tmpfs.h>
 #include <libs/string.h>
-#include <mm/vmm/kheap.h>
+#include <mm/kheap/kheap.h>
 #include <process/locks.h>
 #include <stdbool.h>
 #include <stddef.h>

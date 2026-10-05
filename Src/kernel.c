@@ -16,20 +16,16 @@
 #include <fs/fs.h>
 #include <input/input.h>
 #include <kernel.h>
+#include <mm/kheap/kheap.h>
 #include <mm/mm.h>
-#include <mm/vmm/kheap.h>
 #include <platform/attributes.h>
 #include <process/scheduler.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <utils/log.h>
+#include <utils/panic.h>
 #include <utils/utils.h>
-
-static void loop(void) {
-  while (true) {
-  }
-}
 
 void kmain(void) {
   serial_init();
@@ -39,8 +35,7 @@ void kmain(void) {
   LOG_NEWLINE();
 
   if (!isBootOk()) {
-    LOG_ERROR("Boot failed");
-    loop();
+    kernel_panic("Boot failed!");
   }
 
   DISABLE_INT;
@@ -56,22 +51,19 @@ void kmain(void) {
   mm_init();
 
   if (screen_init() != SCREEN_SUCCESS) {
-    LOG_ERROR("Framebuffer initialization failed!");
-    loop();
+    kernel_panic("Screen initialization failed!");
   }
 
   device_registry_init();
 
   void* addr = getRSDT();
 
-  if (addr == NULL) {
-    LOG_ERROR("Unable to get RSDT!");
-    loop();
+  if (!addr) {
+    kernel_panic("Unable to get RSDT!");
   }
 
   if (!initACPI(addr, &phys_to_virt)) {
-    LOG_ERROR("ACPI init faild!");
-    loop();
+    kernel_panic("ACPI initialization failed!");
   }
 
   timer_init();
@@ -90,8 +82,5 @@ void kmain(void) {
 
   scheduler_init();
 
-  while (true) {
-    log_error("scheduler is exited");
-    timer_sleep_ms(5000);
-  }
+  kernel_panic("Kernel panic: Reached end of kmain()!");
 }

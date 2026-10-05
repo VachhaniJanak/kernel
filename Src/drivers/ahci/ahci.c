@@ -5,7 +5,7 @@
 #include <drivers/pcie/pcie.h>
 #include <libs/string.h>
 #include <mm/mm.h>
-#include <mm/vmm/kheap.h>
+#include <mm/kheap/kheap.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <utils/log.h>

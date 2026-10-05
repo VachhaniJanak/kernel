@@ -89,6 +89,7 @@ target_sources(${CMAKE_PROJECT_NAME}.elf PRIVATE
 
     Src/utils/printf.c
     Src/utils/utils.c
+    Src/utils/panic.c
 
     Src/arch/x86_64/idt.c
     Src/arch/x86_64/gdt.c
@@ -111,19 +112,11 @@ target_sources(${CMAKE_PROJECT_NAME}.elf PRIVATE
     Src/drivers/keyboard/ps2/scancode_set2.c
 
     Src/mm/mm.c
-    Src/mm/debug.c
-    
     Src/mm/pmm/buddy.c
     Src/mm/pmm/pmm.c
-
-    Src/mm/slub/sslub.c
-    Src/mm/slub/slubutils.c
-    Src/mm/slub/rbtree.c
-    Src/mm/slub/lslub.c
-
+    Src/mm/kheap/slub.c
+    Src/mm/kheap/kheap.c
     Src/mm/vmm/vmm.c
-    Src/mm/vmm/rbtree.c
-    Src/mm/vmm/kheap.c
 
     Src/consolefont/fonts/terminus28b.o
     Src/consolefont/font.c

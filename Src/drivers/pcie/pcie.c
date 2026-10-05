@@ -52,12 +52,13 @@ void init_pcie(void) {
   // uint8_t startBusNumber = entry->startBusNumber;
   // uint8_t endBusNumber = entry->endBusNumber;
 
-  void* virtBaseAddress = phys_to_virt((void*)baseAddress);
-
   for (size_t i = 0; i < 256; i++) {
-    void* virtAddr =
-        (void*)((uintptr_t)virtBaseAddress + (i * PCI_CFG_SPACE_SIZE));
-    if (!mmap(virtAddr, (void*)(baseAddress + (i * PCI_CFG_SPACE_SIZE)))) {
+    void* physAddr = (void*)(baseAddress + (i * PCI_CFG_SPACE_SIZE));
+    void* virtAddr;
+
+    mm_result_t result = mm_map_io_address((uintptr_t*)&virtAddr, physAddr);
+
+    if (result != MM_SUCCESS) {
       LOG_ERROR("Failed to map PCIe configuration space for bus %zu.", i);
       return;
     }

@@ -1,45 +1,33 @@
 #include <arch/x86_64/mmu.h>
+#include <mm/kheap/kheap.h>
 #include <mm/mm.h>
 #include <mm/pmm/pmm.h>
-#include <mm/slub/slub.h>
 #include <mm/utils.h>
 #include <mm/vmm/vmm.h>
+#include <process/locks.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <utils/log.h>
 #include <utils/utils.h>
 
-#include "../debug.h"
-#include "rbtree.h"
+// State variables
+static vmalloc_region_t* vmalloc_list_head;
+static spinlock_t vmalloc_lock;
+static struct mm_state_s* mm_state;
 
-void* valloc_page(void);
-void vfree_page(void* addr);
-
-static RBTree vmm_tree = {0};
-static struct mm_state_s* mm_state = NULL;
-static struct sslub_state_s pre_alloc = {0};
-static struct sgl_node_s* size_classes[50] = {NULL};
-
-bool init_vmm(struct mm_state_s* state) {
-  if (state == NULL) return false;
-
+int vmm_init(struct mm_state_s* state) {
+  vmalloc_list_head = NULL;
+  mm_state = NULL;
   mm_state = state;
-  rb_create(&vmm_tree);
 
-  mm_state->vmalloc_state.cursor = (void*)mm_state->kernel_vmalloc_base;
-  mm_state->vmalloc_state.fragment_list = size_classes;
+  spinlock_init(&vmalloc_lock);
 
-  // initialize small caches for slab allocator
-  // for node allocation e.g: red-black nodes
+  if (mm_state == NULL) {
+    return -1;
+  }
 
-  pre_alloc.page_size = mm_state->page_size;
-  pre_alloc.get_page = &valloc_page;
-  pre_alloc.free_page = &vfree_page;
-
-  init_slub_scaches(&pre_alloc);
-
-  return true;
+  return 0;
 }
 
 static inline bool is_page_table_empty(uint64_t* table, size_t num_entries) {
@@ -88,7 +76,7 @@ mm_result_t map_page(void* root_table, void* virt_addr, void* phys_addr,
 
 #ifdef DEBUG
     if (!is_page_aligned((uintptr_t)new_table, PDPT_ALIGNMENT)) {
-      pmm_free(&mm_state->pmm_state,new_table);
+      pmm_free(&mm_state->pmm_state, new_table);
       return MM_ERR_INVALID_PM_ALIGNMENT;
     }
 #endif
@@ -126,7 +114,7 @@ mm_result_t map_page(void* root_table, void* virt_addr, void* phys_addr,
 
 #ifdef DEBUG
     if (!is_page_aligned((uintptr_t)new_table, PD_ALIGNMENT)) {
-      pmm_free(&mm_state->pmm_state,new_table);
+      pmm_free(&mm_state->pmm_state, new_table);
       return MM_ERR_INVALID_PM_ALIGNMENT;
     }
 #endif
@@ -163,12 +151,12 @@ mm_result_t map_page(void* root_table, void* virt_addr, void* phys_addr,
 
   // check if the entry is present
   if (!(pd[pd_idx] & MMU_PRESENT)) {
-    uint64_t* new_table = pmm_alloc(&mm_state->pmm_state,PT_SIZE);
+    uint64_t* new_table = pmm_alloc(&mm_state->pmm_state, PT_SIZE);
     if (new_table == NULL) return MM_ERR_OUT_OF_MEMORY;
 
 #ifdef DEBUG
     if (!is_page_aligned((uintptr_t)new_table, PT_ALIGNMENT)) {
-      pmm_free(&mm_state->pmm_state,new_table);
+      pmm_free(&mm_state->pmm_state, new_table);
       return MM_ERR_INVALID_PM_ALIGNMENT;
     }
 #endif
@@ -234,7 +222,7 @@ mm_result_t unmap_page(void* root_table, void* virt_addr,
     // pml4
     if (is_page_table_empty(pdpt, PDPT_NUM_ENTRIES)) {
       pml4[pml4_idx] = 0;
-      pmm_free(&mm_state->pmm_state,virt_to_phys(pdpt));
+      pmm_free(&mm_state->pmm_state, virt_to_phys(pdpt));
     }
 
     return MM_SUCCESS;
@@ -260,14 +248,14 @@ mm_result_t unmap_page(void* root_table, void* virt_addr,
     // pdpt
     if (is_page_table_empty(pd, PD_NUM_ENTRIES)) {
       pdpt[pdpt_idx] = 0;
-      pmm_free(&mm_state->pmm_state,virt_to_phys(pd));
+      pmm_free(&mm_state->pmm_state, virt_to_phys(pd));
     }
 
     // check if the pdpt is empty, if it is, free it and remove the entry from
     // pml4
     if (is_page_table_empty(pdpt, PDPT_NUM_ENTRIES)) {
       pml4[pml4_idx] = 0;
-      pmm_free(&mm_state->pmm_state,virt_to_phys(pdpt));
+      pmm_free(&mm_state->pmm_state, virt_to_phys(pdpt));
     }
 
     return MM_SUCCESS;
@@ -289,13 +277,13 @@ mm_result_t unmap_page(void* root_table, void* virt_addr,
   // check if the pt is empty, if it is, free it and remove the entry from pd
   if (is_page_table_empty(pt, PT_NUM_ENTRIES)) {
     pd[pd_idx] = 0;
-    pmm_free(&mm_state->pmm_state,virt_to_phys(pt));
+    pmm_free(&mm_state->pmm_state, virt_to_phys(pt));
   }
 
   // check if the pd is empty, if it is, free it and remove the entry from pdpt
   if (is_page_table_empty(pd, PD_NUM_ENTRIES)) {
     pdpt[pdpt_idx] = 0;
-    pmm_free(&mm_state->pmm_state,virt_to_phys(pd));
+    pmm_free(&mm_state->pmm_state, virt_to_phys(pd));
   }
 
   // check if the pdpt is empty, if it is, free it and remove the entry from
@@ -303,7 +291,7 @@ mm_result_t unmap_page(void* root_table, void* virt_addr,
 
   if (is_page_table_empty(pdpt, PDPT_NUM_ENTRIES)) {
     pml4[pml4_idx] = 0;
-    pmm_free(&mm_state->pmm_state,virt_to_phys(pdpt));
+    pmm_free(&mm_state->pmm_state, virt_to_phys(pdpt));
   }
 
   return MM_SUCCESS;
@@ -598,287 +586,261 @@ mm_result_t remap_page(void* root_table, void* virt_addr, void* new_phys_addr,
   return MM_SUCCESS;
 }
 
-void* pre_obj_alloc(size_t size) { return sslub_alloc(&pre_alloc, size); }
+static void* vmalloc_allocate_space(size_t requested_size) {
+  if (requested_size == 0) {
+    return NULL;
+  }
 
-void pre_obj_free(void* ptr) { sslub_free(&pre_alloc, ptr); }
+  const size_t vmalloc_start = mm_state->vmalloc_base;
+  const size_t vmalloc_end = mm_state->vmalloc_base + mm_state->vmalloc_size;
 
-static inline size_t size_to_class_index(size_t size, size_t page_size) {
-  if (size == 0) return 0;
+  const size_t page_size = mm_state->page_size;
+  size_t aligned_size = page_align_up(requested_size, page_size);
 
-  return log2(size) - log2(page_size);
+  // unmapped guard page at the end
+  size_t required_gap = aligned_size + page_size;
+
+  unsigned long flags;
+  spinlock_acquire(&vmalloc_lock, &flags);
+
+  uintptr_t candidate_base = vmalloc_start;
+  vmalloc_region_t* current = vmalloc_list_head;
+  vmalloc_region_t* insert_after = NULL;
+
+  // If the list is completely empty
+  if (!current) {
+    if (vmalloc_end - vmalloc_start < required_gap) {
+      goto fail;
+    }
+
+    candidate_base = vmalloc_start;
+  } else {
+    // Check the gap BEFORE the very first allocation
+    if (current->virtual_base - vmalloc_start >= required_gap) {
+      candidate_base = vmalloc_start;
+      insert_after = NULL;
+    } else {
+      // Walk the list to find a gap between allocations
+      bool found = false;
+      while (current != NULL) {
+        uintptr_t gap_start = current->virtual_base + current->size;
+
+        // The gap ends at the next allocation, or at VMALLOC_END
+        uintptr_t gap_end =
+            current->next ? current->next->virtual_base : vmalloc_end;
+
+        // Did we find a hole large enough?
+        if (gap_end - gap_start >= required_gap) {
+          // Start our allocation exactly after the previous one's guard page
+          candidate_base = gap_start + page_size;
+          insert_after = current;
+          found = true;
+          break;
+        }
+        current = current->next;
+      }
+
+      if (!found) goto fail;
+    }
+  }
+
+  // We found a hole! Create the tracking node using your SLUB allocator.
+  vmalloc_region_t* new_node =
+      (vmalloc_region_t*)kmalloc(sizeof(vmalloc_region_t));
+  if (!new_node) goto fail;
+
+  new_node->virtual_base = candidate_base;
+  new_node->size = aligned_size;
+
+  // Insert into the sorted doubly-linked list
+  if (insert_after == NULL) {
+    // Insert at the head
+    new_node->prev = NULL;
+    new_node->next = vmalloc_list_head;
+    if (vmalloc_list_head) vmalloc_list_head->prev = new_node;
+    vmalloc_list_head = new_node;
+  } else {
+    // Insert in the middle or end
+    new_node->prev = insert_after;
+    new_node->next = insert_after->next;
+    if (insert_after->next) insert_after->next->prev = new_node;
+    insert_after->next = new_node;
+  }
+
+  spinlock_release(&vmalloc_lock, flags);
+  return (void*)candidate_base;
+
+fail:
+  spinlock_release(&vmalloc_lock, flags);
+  return NULL;
 }
 
-static inline void push(void* addr, size_t size) {
-  struct sgl_node_s* n = pre_obj_alloc(sizeof(struct sgl_node_s));
-
-  if (n == NULL) return;
-
-  n->addr = addr;
-  n->size = size;
-
-  size_t idx = size_to_class_index(size, mm_state->page_size);
-  struct sgl_node_s** list = mm_state->vmalloc_state.fragment_list;
-  n->next = list[idx];
-  list[idx] = n;
-}
-
-static inline void* pop(size_t size) {
-  size_t idx = size_to_class_index(size, mm_state->page_size);
-  struct sgl_node_s** list = mm_state->vmalloc_state.fragment_list;
-  struct sgl_node_s* n = list[idx];
-
-  if (n == NULL) return NULL;
-
-  size_classes[idx] = n->next;
-  void* addr = n->addr;
-
-  pre_obj_free(n);
-
-  return addr;
-}
-
-static inline uintptr_t get_end_addr(void* addr, size_t size) {
-  return (uintptr_t)addr + size;
-}
-
-static inline void* vmalloc_vaddr(size_t size) {
-  void* addr = pop(size);
-
-  if (addr != NULL) return addr;
-
-  size_t total_size = mm_state->kernel_vmalloc_size;
-  uintptr_t base_addr = mm_state->kernel_vmalloc_base;
-  total_size -= ((uintptr_t)mm_state->vmalloc_state.cursor - base_addr);
-
-  if (size > total_size) return NULL;
-
-  addr = mm_state->vmalloc_state.cursor;
-  mm_state->vmalloc_state.cursor = (void*)get_end_addr(addr, size);
-
-  return addr;
-}
-
-static inline void vfree_vaddr(void* addr, size_t size) {
-  void* end_addr = (void*)get_end_addr(addr, size);
-
-  if (end_addr == mm_state->vmalloc_state.cursor) {
-    mm_state->vmalloc_state.cursor = addr;
+static void vmalloc_free_space(void* virt_ptr) {
+  if (!virt_ptr) {
     return;
   }
 
-  push(addr, size);
+  uintptr_t target_base = (uintptr_t)virt_ptr;
+
+  unsigned long flags;
+  spinlock_acquire(&vmalloc_lock, &flags);
+
+  vmalloc_region_t* current = vmalloc_list_head;
+
+  while (current != NULL) {
+    if (current->virtual_base == target_base) {
+      // Unlink from the doubly-linked list
+      if (current->prev) {
+        current->prev->next = current->next;
+      } else {
+        vmalloc_list_head = current->next;
+      }
+
+      if (current->next) {
+        current->next->prev = current->prev;
+      }
+
+      spinlock_release(&vmalloc_lock, flags);
+      kfree(current);
+      return;
+    }
+    current = current->next;
+  }
+
+  spinlock_release(&vmalloc_lock, flags);
 }
 
-void* valloc_page(void) {
-  mm_flags_t flags = MMU_WRITABLE;
+void* vmalloc(size_t size, mm_flags_t mm_flags) {
+  if (size == 0) {
+    return NULL;
+  }
+
+  void* virt_base = vmalloc_allocate_space(size);
+
+  if (!virt_base) {
+    return NULL;
+  }
+
   const size_t page_size = mm_state->page_size;
-  uint8_t* phy_addr = pmm_alloc(&mm_state->pmm_state,page_size);
+  const size_t pages_needed = page_align_up(size, page_size) / page_size;
 
-  if (phy_addr == NULL) return NULL;
-
-  uint8_t* vir_addr = vmalloc_vaddr(page_size);
-
-  if (vir_addr == NULL) {
-    pmm_free(&mm_state->pmm_state,phy_addr);
+  if (!pmm_is_pages_avaliable(&mm_state->pmm_state, pages_needed)) {
+    vmalloc_free_space(virt_base);
     return NULL;
   }
 
   void* root_table = mm_get_root_table();
-  mm_result_t result = map_page(root_table, vir_addr, phy_addr, flags);
+  uintptr_t current_virt = (uintptr_t)virt_base;
 
-  if (result != MM_SUCCESS) {
-    pmm_free(&mm_state->pmm_state,phy_addr);
-    vfree_vaddr(vir_addr, page_size);
-#ifdef DEBUG
-    log_error("Failed to map page, error code: %d\n", result);
-#endif
+  for (size_t i = 0; i < pages_needed; ++i) {
+    void* phys_frame = pmm_alloc(&mm_state->pmm_state, page_size);
+
+    if (phys_frame) {
+      mm_result_t result =
+          map_page(root_table, (void*)current_virt, phys_frame, mm_flags);
+
+      if (result == MM_SUCCESS) {
+        current_virt += page_size;
+        continue;
+      }
+
+      pmm_free(&mm_state->pmm_state, phys_frame);
+    }
+
+    // rollback if mapping fails or allocation fails
+    for (size_t j = 0; j < i; j++) {
+      uint8_t* virt_addr = (uint8_t*)virt_base + page_size * j;
+
+      uintptr_t phys_addr;
+      mm_result_t result = unmap_page(root_table, virt_addr, &phys_addr);
+
+      if (result == MM_SUCCESS) {
+        pmm_free(&mm_state->pmm_state, (void*)phys_addr);
+      }
+    }
+
+    vmalloc_free_space(virt_base);
     return NULL;
   }
 
-  return vir_addr;
+  return virt_base;
 }
 
-void vfree_page(void* addr) {
+static vmalloc_region_t* vmalloc_find_region(void* virt_ptr) {
+  if (!virt_ptr) {
+    return NULL;
+  }
+
+  uintptr_t target_base = (uintptr_t)virt_ptr;
+
+  unsigned long flags;
+  spinlock_acquire(&vmalloc_lock, &flags);
+
+  vmalloc_region_t* current = vmalloc_list_head;
+
+  while (current != NULL) {
+    if (current->virtual_base == target_base) {
+      spinlock_release(&vmalloc_lock, flags);
+      return current;
+    }
+    current = current->next;
+  }
+
+  spinlock_release(&vmalloc_lock, flags);
+  return NULL;
+}
+
+static void vmalloc_direct_free(vmalloc_region_t* region) {
+  if (!region) {
+    return;
+  }
+
+  unsigned long flags;
+  spinlock_acquire(&vmalloc_lock, &flags);
+
+  vmalloc_region_t* current = region;
+
+  // Unlink from the doubly-linked list
+  if (current->prev) {
+    current->prev->next = current->next;
+  } else {
+    vmalloc_list_head = current->next;
+  }
+
+  if (current->next) {
+    current->next->prev = current->prev;
+  }
+
+  spinlock_release(&vmalloc_lock, flags);
+  kfree(current);
+}
+
+void vfree(void* addr) {
   if (addr == NULL) {
     return;
   }
 
-  void* root_table = mm_get_root_table();
+  vmalloc_region_t* region = vmalloc_find_region(addr);
 
-  uintptr_t phys_addr;
-  mm_result_t result = unmap_page(root_table, addr, &phys_addr);
-
-  if (result == MM_SUCCESS) {
-    pmm_free(&mm_state->pmm_state,(void*)phys_addr);
-  }
-
-  vfree_vaddr(addr, mm_state->page_size);
-}
-
-void* vmalloc(size_t size, mm_flags_t flags, bool continuous) {
-  if (size == 0) return NULL;
-
-  const size_t page_size = mm_state->page_size;
-  size = page_align_up(size, page_size);
-  const size_t no_pages = size / page_size;
-
-  if (!pmm_is_pages_avaliable(&mm_state->pmm_state, no_pages)) return NULL;
-
-  uint8_t* phy_addr = pmm_alloc(&mm_state->pmm_state,size);
-  uint8_t* vir_addr = vmalloc_vaddr(size);
-
-  if (vir_addr == NULL) {
-    pmm_free(&mm_state->pmm_state,phy_addr);
-    return NULL;
-  }
-
-  void* root_table = mm_get_root_table();
-
-  // check for continues pages
-  if (phy_addr != NULL) {
-    for (size_t i = 0; i < no_pages; i++) {
-      uint8_t* p_addr = phy_addr + page_size * i;
-      uint8_t* v_addr = vir_addr + page_size * i;
-
-      map_page(root_table, v_addr, p_addr, flags);
-    }
-
-    rb_insert(&vmm_tree, vir_addr, size, true);
-    return vir_addr;
-  }
-
-  if (continuous) return NULL;
-
-  // if not, then allocate non continues physical pages
-  for (size_t i = 0; i < no_pages; i++) {
-    uint8_t* v_addr = vir_addr + page_size * i;
-    void* p_addr = pmm_alloc(&mm_state->pmm_state, page_size);
-
-    if (p_addr != NULL) {
-      map_page(root_table, v_addr, p_addr, flags);
-      continue;
-    }
-
-    // rollback
-    for (size_t j = 0; j < i; j++) {
-      uint8_t* v_addr = vir_addr + page_size * j;
-
-      uintptr_t p_addr;
-      mm_result_t result = unmap_page(root_table, v_addr, &p_addr);
-
-      if (result == MM_SUCCESS) pmm_free(&mm_state->pmm_state,(void*)p_addr);
-    }
-    vfree_vaddr(vir_addr, size);
-  }
-
-  rb_insert(&vmm_tree, vir_addr, size, false);
-  return vir_addr;
-}
-
-void vfree(void* addr) {
-  if (addr == NULL) return;
-
-  size_t size;
-  bool is_continuous;
-
-  if (!rb_delete(&vmm_tree, addr, &size, &is_continuous)) return;
-
-  vfree_vaddr(addr, size);
-
-  void* root_table = mm_get_root_table();
-
-  const size_t page_size = mm_state->page_size;
-  const size_t no_pages = size / page_size;
-
-  if (is_continuous) {
-    uintptr_t phys_addr;
-    mm_result_t result = unmap_page(root_table, addr, &phys_addr);
-
-    for (size_t i = 1; i < no_pages; i++) {
-      uint8_t* v_addr = (uint8_t*)addr + page_size * i;
-      unmap_page(root_table, v_addr, &phys_addr);
-    }
-
-    if (result != MM_SUCCESS) pmm_free(&mm_state->pmm_state,(void*)phys_addr);
-
+  if (!region) {
     return;
   }
 
-  for (size_t i = 0; i < no_pages; i++) {
-    uint8_t* v_addr = (uint8_t*)addr + page_size * i;
-    uintptr_t p_addr;
-    mm_result_t result = unmap_page(root_table, v_addr, &p_addr);
+  void* root_table = mm_get_root_table();
 
-    if (result == MM_SUCCESS) pmm_free(&mm_state->pmm_state,(void*)p_addr);
-  }
-}
+  const size_t page_size = mm_state->page_size;
+  const size_t num_pages = region->size / page_size;
 
-/////////////////////////// DEBUGGING FUNCTIONS ///////////////////////////
+  for (size_t i = 0; i < num_pages; i++) {
+    uint8_t* virt_addr = (uint8_t*)addr + page_size * i;
 
-#ifdef DEBUG
+    uintptr_t phys_addr;
+    mm_result_t result = unmap_page(root_table, virt_addr, &phys_addr);
 
-/* Validation (debug)  */
-/* Traversals  */
-
-void inorder(RBTree* t, Node* x) {
-  if (x == t->nil) return;
-
-  inorder(t, x->left);
-  LOG_PRINT("%p(%s)\n", x->addr, x->color == RED ? "R" : "B");
-  inorder(t, x->right);
-}
-
-/* Returns black-height; -1 on violation */
-static int validate_helper(RBTree* t, Node* x) {
-  if (x == t->nil) return 1;
-
-  if (x->color == RED) {
-    if (x->left->color == RED) return -1;
-    if (x->right->color == RED) return -1;
-  }
-  int lh = validate_helper(t, x->left);
-  int rh = validate_helper(t, x->right);
-  if (lh == -1 || rh == -1 || lh != rh) return -1;
-  return lh + (x->color == BLACK ? 1 : 0);
-}
-
-int rb_validate(RBTree* t) {
-  if (t->root->color != BLACK) return 0;
-  return validate_helper(t, t->root) != -1;
-}
-
-void print_size_classes(void) {
-  for (size_t i = 0; i < sizeof(size_classes) / sizeof(size_classes[0]); i++) {
-    struct sgl_node_s* n = size_classes[i];
-
-    if (n == NULL) continue;
-
-    LOG_PRINT("Size class %2zu: ", i);
-    while (n != NULL) {
-      LOG_PRINT("[addr: %p, size: %zu] -> ", n->addr, n->size);
-      n = n->next;
+    if (result == MM_SUCCESS && phys_addr != 0) {
+      pmm_free(&mm_state->pmm_state, (void*)phys_addr);
     }
-    LOG_PRINT("NULL\n");
   }
+
+  vmalloc_direct_free(region);
 }
-
-void debug_print_vmm_tree(void) {
-  LOG_NEWLINE();
-  LOG_DEBUG("=== VMM Tree :\n");
-  LOG_PRINT("=== In-order :\n");
-  inorder(&vmm_tree, vmm_tree.root);
-  LOG_PRINT("=== Valid RB tree? %s\n", rb_validate(&vmm_tree) ? "YES" : "NO");
-
-  // for (size_t i = 0; i < NO_SMALL_PRE_CACHES; i++)
-  // print_slub_kmem_cache(&pre_alloc.caches[i]);
-
-  print_slub_kmem_cache(&pre_alloc.caches[5]);
-}
-
-void debug_print_size_classes(void) {
-  LOG_NEWLINE();
-  LOG_DEBUG("=== Size Classes :\n");
-  print_size_classes();
-}
-
-#endif

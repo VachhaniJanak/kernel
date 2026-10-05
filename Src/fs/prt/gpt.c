@@ -1,7 +1,7 @@
 #include <device/block.h>
 #include <fs/prt/gpt.h>
 #include <libs/string.h>
-#include <mm/vmm/kheap.h>
+#include <mm/kheap/kheap.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>

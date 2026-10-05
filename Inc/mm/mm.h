@@ -44,16 +44,14 @@ typedef enum {
 
 extern uintptr_t hhdm_offset;
 
-struct vm_area_s {
-  void* cursor;
-  void* fragment_list;
-};
-
 struct mm_state_s {
   uintptr_t hhdm_offset;
   size_t page_size;
 
   void* kernel_root_table;
+
+  uintptr_t vmalloc_base;
+  size_t vmalloc_size;
 
   uintptr_t kernel_phys_base;
   uintptr_t kernel_virt_base;
@@ -61,11 +59,6 @@ struct mm_state_s {
 
   uintptr_t kernel_heap_base;
   uintptr_t kernel_heap_size;
-  struct vm_area_s heap_state;
-
-  uintptr_t kernel_vmalloc_base;
-  uintptr_t kernel_vmalloc_size;
-  struct vm_area_s vmalloc_state;
 
   uintptr_t kernel_stack_base;
   uintptr_t kernel_stack_size;
@@ -77,7 +70,6 @@ struct mm_state_s {
   size_t user_kernel_stack_size;
   uintptr_t user_mmap_base;
 
-  struct vm_area_s stack_state;
   struct pmm_state_s pmm_state;
 };
 
@@ -92,10 +84,6 @@ static inline void* phys_to_virt(void* ptr) {
 void* mm_get_root_table(void);
 
 int mm_init(void);
-
-bool mmap(void* virt_addr, void* phys_addr);
-
-void ummap(void* virt_addr);
 
 uint64_t mm_get_mmu_flags(mm_flags_t flags);
 

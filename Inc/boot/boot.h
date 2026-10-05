@@ -66,10 +66,11 @@ void* getRSDT(void);
 
 bool getBootVolumeInfo(struct boot_volume_info* volume);
 
-int boot_iterate_mmap_entries(int* saved_index, void* context,
+
+int boot_iterate_mmap_entries(size_t* saved_index, void* context,
                               int (*callback)(void* context,
                                               struct MemoryMapEntry_s* entry));
 
 char* boot_get_memory_type_string(size_t type);
 
-int boot_get_mmap_entry(int index, struct MemoryMapEntry_s* entry);
+int boot_get_mmap_entry(size_t index, struct MemoryMapEntry_s* entry);

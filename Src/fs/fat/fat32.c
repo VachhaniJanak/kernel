@@ -3,7 +3,7 @@
 #include <fs/fat/fat32.h>
 #include <fs/fs.h>
 #include <libs/string.h>
-#include <mm/vmm/kheap.h>
+#include <mm/kheap/kheap.h>
 #include <platform/attributes.h>
 #include <stdbool.h>
 #include <stddef.h>

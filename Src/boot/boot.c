@@ -108,17 +108,23 @@ bool getBootVolumeInfo(struct boot_volume_info* volume) {
   return true;
 }
 
-int boot_iterate_mmap_entries(int* saved_index, void* context,
+int boot_iterate_mmap_entries(size_t* saved_index, void* context,
                               int (*callback)(void* context,
                                               struct MemoryMapEntry_s* entry)) {
-  if (!callback || !saved_index || !memmap_request.response ||
+  if (!callback || !memmap_request.response ||
       memmap_request.response->entry_count < 1) {
     return -1;
   }
 
+  size_t start_index = 0;
+
+  if (saved_index) {
+    start_index = *saved_index;
+  }
+
   struct MemoryMapEntry_s temp = {0};
 
-  for (int i = *saved_index; i < memmap_request.response->entry_count; i++) {
+  for (size_t i = start_index; i < memmap_request.response->entry_count; i++) {
     struct limine_memmap_entry* entry = memmap_request.response->entries[i];
 
     temp.base = entry->base;
@@ -126,16 +132,20 @@ int boot_iterate_mmap_entries(int* saved_index, void* context,
     temp.type = entry->type;
 
     if (callback(context, &temp) > 0) {
-      *saved_index = i;
+      if (saved_index) {
+        *saved_index = i + 1;
+      }
       return 1;
     }
   }
 
-  *saved_index = memmap_request.response->entry_count;
+  if (saved_index) {
+    *saved_index = memmap_request.response->entry_count;
+  }
   return 0;
 }
 
-int boot_get_mmap_entry(int index, struct MemoryMapEntry_s* entry) {
+int boot_get_mmap_entry(size_t index, struct MemoryMapEntry_s* entry) {
   if (memmap_request.response == NULL ||
       index >= memmap_request.response->entry_count) {
     return -1;

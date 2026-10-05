@@ -2,7 +2,7 @@
 #include <mm/mm.h>
 #include <mm/pmm/pmm.h>
 #include <mm/utils.h>
-#include <mm/vmm/kheap.h>
+#include <mm/kheap/kheap.h>
 #include <mm/vmm/vmm.h>
 #include <platform/attributes.h>
 #include <process/cleanup.h>

@@ -3,7 +3,7 @@
 #include <arch/x86_64/mmu.h>
 #include <fs/fs.h>
 #include <mm/mm.h>
-#include <mm/vmm/kheap.h>
+#include <mm/kheap/kheap.h>
 #include <process/process.h>
 #include <process/scheduler.h>
 #include <stdbool.h>

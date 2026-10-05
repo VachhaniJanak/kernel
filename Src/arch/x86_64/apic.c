@@ -138,9 +138,11 @@ void init_apic_timer(void) {
 void init_apic(void) {
   // map the LAPIC address
   void* phys_addr = getLocalApicAddr();
-  void* virt_addr = phys_to_virt(phys_addr);
+  void* virt_addr;
 
-  if (!mmap(virt_addr, phys_addr)) {
+  mm_result_t result = mm_map_io_address((uintptr_t*)&virt_addr, phys_addr);
+
+  if (result != MM_SUCCESS) {
     LOG_ERROR("Failed to map LAPIC address!");
     return;
   }
@@ -148,9 +150,11 @@ void init_apic(void) {
   // map the IOAPIC address
   struct madtEntryType1_s* addr = getMADTApicEntry(MADT_I_O_APIC);
   void* ioapic_phys_addr = (void*)(uintptr_t)addr->ioApciAddr;
-  void* ioapic_virt_addr = phys_to_virt(ioapic_phys_addr);
+  void* ioapic_virt_addr;
 
-  if (!mmap(ioapic_virt_addr, ioapic_phys_addr)) {
+  result = mm_map_io_address((uintptr_t*)&ioapic_virt_addr, ioapic_phys_addr);
+
+  if (result != MM_SUCCESS) {
     LOG_ERROR("Failed to map IOAPIC address!");
     return;
   }

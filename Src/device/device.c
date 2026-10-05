@@ -1,6 +1,6 @@
 #include <device/device.h>
 #include <libs/string.h>
-#include <mm/vmm/kheap.h>
+#include <mm/kheap/kheap.h>
 #include <utils/log.h>
 #include <utils/printf.h>
 

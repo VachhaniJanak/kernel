@@ -113,18 +113,29 @@ static int feed_region(void* context, struct MemoryMapEntry_s* entry) {
   return 0;  // Continue iteration
 }
 
+#ifdef PMM_DEBUG
+static int print_mmap(void* context, struct MemoryMapEntry_s* entry) {
+  log_print("Base=0x%016lx, Length=0x%016lx, Type=%s\n", entry->base,
+            entry->length, boot_get_memory_type_string(entry->type));
+  return 0;  // Continue iteration
+}
+#endif
+
 int pmm_init(struct pmm_state_s* self, size_t page_size, size_t hhdm_offset) {
+#ifdef PMM_DEBUG
+  log_print("Memory Map Entries:\n");
+  boot_iterate_mmap_entries(NULL, NULL, print_mmap);
+#endif
+
   pmm_log_print("Initializing Physical Memory Manager (PMM)...\n");
 
   self->page_size = page_size;
   self->hhdm_offset = hhdm_offset;
 
-  int saved_index = 0;
   int result = 0;
   size_t memory_size = 0;
 
-  result =
-      boot_iterate_mmap_entries(&saved_index, &memory_size, find_memory_size);
+  result = boot_iterate_mmap_entries(NULL, &memory_size, find_memory_size);
 
   if (result < 0) {
     pmm_log_error(
@@ -136,10 +147,8 @@ int pmm_init(struct pmm_state_s* self, size_t page_size, size_t hhdm_offset) {
 
   // @@@ find the highest address in the memory map @@@
   uintptr_t highest_addr = 0;
-  saved_index = 0;
 
-  result = boot_iterate_mmap_entries(&saved_index, &highest_addr,
-                                     get_highest_address);
+  result = boot_iterate_mmap_entries(NULL, &highest_addr, get_highest_address);
 
   if (result < 0) {
     pmm_log_error(
@@ -148,7 +157,7 @@ int pmm_init(struct pmm_state_s* self, size_t page_size, size_t hhdm_offset) {
   }
 
   size_t metadata_num_frames = highest_addr / self->page_size;
-  size_t raw_metadata_size = metadata_num_frames * sizeof(buddy_frame_info_t);
+  size_t raw_metadata_size = metadata_num_frames * sizeof(frame_info_t);
   size_t metadata_size = page_align_up(raw_metadata_size, self->page_size);
 
   pmm_log_print("Metadata size: %zu bytes (%zu frames)\n", metadata_size,
@@ -160,10 +169,8 @@ int pmm_init(struct pmm_state_s* self, size_t page_size, size_t hhdm_offset) {
   es_context.required_size = metadata_size;
   es_context.minimum_size = 0;
   es_context.base = 0;
-  saved_index = 0;
 
-  result =
-      boot_iterate_mmap_entries(&saved_index, &es_context, find_enough_space);
+  result = boot_iterate_mmap_entries(NULL, &es_context, find_enough_space);
 
   if (result < 0) {
     pmm_log_error(
@@ -186,11 +193,10 @@ int pmm_init(struct pmm_state_s* self, size_t page_size, size_t hhdm_offset) {
 
   // @@@ Initialize the buddy allocator @@@
   // Convert to virtual address
-  buddy_frame_info_t* frame_info_ptr =
-      (buddy_frame_info_t*)(es_context.base + self->hhdm_offset);
+  self->metadata = (frame_info_t*)(es_context.base + self->hhdm_offset);
 
   buddy_init(&self->buddy_object, self->page_size, self->hhdm_offset,
-             frame_info_ptr, metadata_num_frames);
+             self->metadata, metadata_num_frames);
 
   struct feed_region_context_s fr_context = {0};
 
@@ -198,9 +204,7 @@ int pmm_init(struct pmm_state_s* self, size_t page_size, size_t hhdm_offset) {
   fr_context.metadata_base = es_context.base;
   fr_context.metadata_length = metadata_size;
 
-  saved_index = 0;
-
-  result = boot_iterate_mmap_entries(&saved_index, &fr_context, feed_region);
+  result = boot_iterate_mmap_entries(NULL, &fr_context, feed_region);
 
   if (result < 0) {
     pmm_log_error(
@@ -215,6 +219,14 @@ int pmm_init(struct pmm_state_s* self, size_t page_size, size_t hhdm_offset) {
   // @@@ Print the state of the buddy allocator @@@
 #ifdef PMM_DEBUG
   buddy_print_state(&self->buddy_object);
+
+  // print pmm state
+  log_print("PMM State:\n");
+  log_print("  Total Memory Size: %zu bytes\n", self->total_memory_size);
+  log_print("  Usable Memory Size: %zu bytes\n", self->usable_memory_size);
+  log_print("  Page Size: %zu bytes\n", self->page_size);
+  log_print("  HHDM Offset: 0x%zx\n", self->hhdm_offset);
+  log_print("  Metadata Address: 0x%zx\n", (uintptr_t)self->metadata);
 #endif
 
   return 0;

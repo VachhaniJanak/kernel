@@ -1,4 +1,4 @@
-#include <mm/vmm/kheap.h>
+#include <mm/kheap/kheap.h>
 #include <process/locks.h>
 #include <process/scheduler.h>
 #include <stdbool.h>
@@ -7,7 +7,7 @@
 
 void spinlock_init(spinlock_t* lock) { lock->locked = 0; }
 
-unsigned long spinlock_acquire(spinlock_t* lock) {
+void spinlock_acquire(spinlock_t* lock, unsigned long* save_rflags) {
   unsigned long rflags;
 
   // Save RFLAGS and disable local interrupts
@@ -40,7 +40,7 @@ unsigned long spinlock_acquire(spinlock_t* lock) {
     }
   }
 
-  return rflags;
+  *save_rflags = rflags;
 }
 
 void spinlock_release(spinlock_t* lock, unsigned long rflags) {
@@ -121,7 +121,7 @@ void mutex_acquire(mutex_t* mutex) {
   unsigned long flags;
 
   // Lock the mutex's internal state
-  flags = spinlock_acquire(&mutex->internal_lock);
+  spinlock_acquire(&mutex->internal_lock, &flags);
 
   if (mutex->is_locked == 0) {
     mutex->is_locked = 1;
@@ -143,7 +143,7 @@ void mutex_release(mutex_t* mutex) {
   unsigned long flags;
 
   // Lock the mutex's internal state
-  flags = spinlock_acquire(&mutex->internal_lock);
+  spinlock_acquire(&mutex->internal_lock, &flags);
 
   if (is_queue_empty(mutex->wait_queue_head)) {
     mutex->is_locked = 0;
@@ -167,7 +167,7 @@ void semaphore_init(semaphore_t* semaphore, int initial_count) {
 
 void semaphore_down(semaphore_t* semaphore) {
   unsigned long flags;
-  flags = spinlock_acquire(&semaphore->internal_lock);
+  spinlock_acquire(&semaphore->internal_lock, &flags);
 
   if (semaphore->count > 0) {
     // A resource/signal is available! Consume it.
@@ -189,7 +189,7 @@ void semaphore_down(semaphore_t* semaphore) {
 
 void semaphore_up(semaphore_t* semaphore) {
   unsigned long flags;
-  flags = spinlock_acquire(&semaphore->internal_lock);
+  spinlock_acquire(&semaphore->internal_lock, &flags);
 
   if (is_queue_empty(semaphore->wait_queue_head)) {
     semaphore->count++;

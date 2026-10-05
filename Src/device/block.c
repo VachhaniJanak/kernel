@@ -1,6 +1,6 @@
 #include <device/block.h>
 #include <fs/devfs/devfs.h>
-#include <mm/vmm/kheap.h>
+#include <mm/kheap/kheap.h>
 #include <libs/string.h>
 
 #include <stddef.h>

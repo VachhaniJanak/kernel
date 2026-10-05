@@ -1,7 +1,7 @@
 #include <fs/devfs/devfs.h>
 #include <fs/fs.h>
 #include <libs/string.h>
-#include <mm/vmm/kheap.h>
+#include <mm/kheap/kheap.h>
 #include <platform/attributes.h>
 #include <process/locks.h>
 

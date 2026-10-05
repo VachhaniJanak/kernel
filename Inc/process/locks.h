@@ -4,7 +4,7 @@
 
 #define SPIN_LOCK_ACQUIRE(lock_ptr, flags_var) \
   do {                                         \
-    (flags_var) = spinlock_acquire(lock_ptr);  \
+    spinlock_acquire(lock_ptr, &(flags_var));  \
   } while (0)
 
 #define SPIN_LOCK_RELEASE(lock_ptr, flags_var) \
@@ -41,7 +41,7 @@ typedef struct {
 
 void spinlock_init(spinlock_t* lock);
 
-unsigned long spinlock_acquire(spinlock_t* lock);
+void spinlock_acquire(spinlock_t* lock, unsigned long* save_rflags);
 
 void spinlock_release(spinlock_t* lock, unsigned long rflags);
 
