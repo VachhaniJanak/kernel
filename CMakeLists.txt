@@ -128,6 +128,8 @@ target_sources(${CMAKE_PROJECT_NAME}.elf PRIVATE
     Src/process/thread.c
     Src/process/cleanup.c
     Src/process/waitqueue.c
+    Src/process/vma.c
+    Src/process/pagefault.c
 
     Src/syscall/syscall.c
 

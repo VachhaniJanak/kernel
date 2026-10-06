@@ -1,8 +1,8 @@
 #include <fs/fs.h>
+#include <mm/kheap/kheap.h>
 #include <mm/mm.h>
 #include <mm/pmm/pmm.h>
 #include <mm/utils.h>
-#include <mm/kheap/kheap.h>
 #include <mm/vmm/vmm.h>
 #include <platform/attributes.h>
 #include <process/cleanup.h>
@@ -14,6 +14,8 @@
 #include <stdint.h>
 #include <utils/log.h>
 
+#include "vma.h"
+
 // #define CLEANUP_DEBUG
 
 extern spinlock_t scheduler_state_lock;
@@ -23,30 +25,30 @@ static struct reaper_state_s reaper_state = {0};
 
 static inline bool is_queue_empty(void);
 
-static inline bool enqueue(process_t *process);
+static inline bool enqueue(process_t* process);
 
-static inline process_t *dequeue(void);
+static inline process_t* dequeue(void);
 
-static inline void reaper_cleanup_process(process_t *process) {
+static inline void reaper_cleanup_process(process_t* process) {
   if (process == NULL) {
     return;
   }
 
   // Perform cleanup operations for the process
   const size_t page_size = mm_get_page_size();
-  uintptr_t root_table = (uintptr_t)phys_to_virt((void *)process->page_table);
+  uintptr_t root_table = (uintptr_t)phys_to_virt((void*)process->page_table);
 
-  thread_t *current_thread = process->thread_list_start;
+  thread_t* current_thread = process->thread_list_start;
 
   while (current_thread != NULL) {
     // Free the kernel stack of the thread
-    void *kernel_stack_base = current_thread->kernel_stack_base;
+    void* kernel_stack_base = current_thread->kernel_stack_base;
 
     if (kernel_stack_base != NULL) {
-      mm_free_kstack((void *)root_table, (uintptr_t)kernel_stack_base);
+      mm_free_kstack((void*)root_table, (uintptr_t)kernel_stack_base);
     }
 
-    thread_t *temp_thread = current_thread;
+    thread_t* temp_thread = current_thread;
     current_thread = current_thread->next;
 
     // Free the thread structure
@@ -55,11 +57,11 @@ static inline void reaper_cleanup_process(process_t *process) {
 
   // Free the vma structures
   // user stack free with vma structure
-  struct vma_s *current_vma = process->vma_head;
+  struct vma_s* current_vma = process->vma_head;
 
   while (current_vma != NULL) {
     if (current_vma->flags & VMA_NONE) {
-      struct vma_s *temp_vma = current_vma;
+      struct vma_s* temp_vma = current_vma;
       current_vma = current_vma->next;
 
       // Free the vma structure
@@ -75,10 +77,10 @@ static inline void reaper_cleanup_process(process_t *process) {
       uintptr_t phys_addr = 0;
 
       mm_result_t result =
-          unmap_page((void *)root_table, (void *)virt_addr, &phys_addr);
+          unmap_page((void*)root_table, (void*)virt_addr, &phys_addr);
 
       if (result == MM_SUCCESS && phys_addr != 0) {
-        pmm_free(&mm_state.pmm_state, (void *)phys_addr);
+        pmm_free(&mm_state.pmm_state, (void*)phys_addr);
         continue;
       }
     }
@@ -87,7 +89,7 @@ static inline void reaper_cleanup_process(process_t *process) {
       fs_close(current_vma->file);
     }
 
-    struct vma_s *temp_vma = current_vma;
+    struct vma_s* temp_vma = current_vma;
     current_vma = current_vma->next;
 
     // Free the vma structure
@@ -96,7 +98,7 @@ static inline void reaper_cleanup_process(process_t *process) {
 
   // Free the page table
   if (process->page_table != NULL) {
-    pmm_free(&mm_state.pmm_state, (void *)process->page_table);
+    pmm_free(&mm_state.pmm_state, (void*)process->page_table);
   }
 
   // free the open files array
@@ -127,12 +129,12 @@ static inline void reaper_cleanup_process(process_t *process) {
 }
 
 // Reaper thread function to clean up terminated processes
-void process_reaper_thread(void *arg) {
+void process_reaper_thread(void* arg) {
   UNUSED(arg);
 
   while (1) {
     if (!is_queue_empty()) {
-      process_t *process_to_cleanup = dequeue();
+      process_t* process_to_cleanup = dequeue();
       reaper_cleanup_process(process_to_cleanup);
       continue;
     }
@@ -150,7 +152,7 @@ void cleanup_init(void) {
   kthread_create("process_reaper", NULL, process_reaper_thread, NULL);
 }
 
-bool cleanup_add_process(process_t *process) {
+bool cleanup_add_process(process_t* process) {
   if (process == NULL) {
     return false;
   }
@@ -160,12 +162,12 @@ bool cleanup_add_process(process_t *process) {
 
 static inline bool is_queue_empty(void) { return reaper_state.head == NULL; }
 
-bool enqueue(process_t *process) {
-  struct reaper_node_s *new_node = NULL;
-  new_node = (struct reaper_node_s *)kmalloc(sizeof(struct reaper_node_s));
+bool enqueue(process_t* process) {
+  struct reaper_node_s* new_node = NULL;
+  new_node = (struct reaper_node_s*)kmalloc(sizeof(struct reaper_node_s));
 
   if (new_node == NULL) {
-    return false; // Memory allocation failed
+    return false;  // Memory allocation failed
   }
 
   unsigned long flags;
@@ -189,7 +191,7 @@ bool enqueue(process_t *process) {
   return true;
 }
 
-static inline process_t *dequeue(void) {
+static inline process_t* dequeue(void) {
   if (is_queue_empty()) {
     return NULL;
   }
@@ -197,8 +199,8 @@ static inline process_t *dequeue(void) {
   unsigned long flags;
   SPIN_LOCK_ACQUIRE(&reaper_state.reaper_lock, flags);
 
-  struct reaper_node_s *temp = reaper_state.head;
-  process_t *process = temp->process;
+  struct reaper_node_s* temp = reaper_state.head;
+  process_t* process = temp->process;
 
   reaper_state.head = reaper_state.head->next;
 

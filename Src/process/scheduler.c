@@ -440,6 +440,13 @@ static void foo(void) {
     return;
   }
 
+  ret = load_user_process(NULL, "/userprograms/demo1.elf", NULL);
+
+  if (ret != 0) {
+    log_error("Failed to load user 1 process: %d", ret);
+    return;
+  }
+
   return;
 }
 
@@ -480,7 +487,7 @@ void scheduler_init(void) {
 
   kstrcpy(idle_thread->name, "idle");
   idle_thread->status = THREAD_READY;
-  idle_thread->kernel_stack_base = (void*)KERNEL_STACK_BASE;
+  idle_thread->kernel_stack_base = 0;
   idle_thread->kernel_stack_ptr = 0;
 
   scheduler_state.idle_thread = idle_thread;

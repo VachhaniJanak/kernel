@@ -43,32 +43,22 @@ typedef enum {
 } mm_result_t;
 
 extern uintptr_t hhdm_offset;
+// extern struct mm_state_s mm_state;
+// extern uintptr_t get_page_table_addr();
 
 struct mm_state_s {
   uintptr_t hhdm_offset;
   size_t page_size;
 
-  void* kernel_root_table;
-
   uintptr_t vmalloc_base;
   size_t vmalloc_size;
 
-  uintptr_t kernel_phys_base;
-  uintptr_t kernel_virt_base;
-  uintptr_t kernel_size;
-
-  uintptr_t kernel_heap_base;
-  uintptr_t kernel_heap_size;
-
-  uintptr_t kernel_stack_base;
-  uintptr_t kernel_stack_size;
-  size_t kernel_thread_stack_size;
-
-  uintptr_t user_virtual_base;
+  uintptr_t user_base;
   uintptr_t user_stack_base;
   size_t user_stack_size;
-  size_t user_kernel_stack_size;
+  size_t kernel_stack_size;
   uintptr_t user_mmap_base;
+  uintptr_t kernel_root_table;
 
   struct pmm_state_s pmm_state;
 };
@@ -89,7 +79,7 @@ uint64_t mm_get_mmu_flags(mm_flags_t flags);
 
 void* mm_get_kernel_root_table(void);
 
-size_t mm_get_kernel_thread_stack_size(void);
+size_t mm_get_kernel_stack_size(void);
 
 size_t mm_get_page_size(void);
 

@@ -14,7 +14,9 @@
 struct mm_state_s mm_state;
 uintptr_t hhdm_offset = 0;
 
-void* mm_get_kernel_root_table(void) { return mm_state.kernel_root_table; }
+void* mm_get_kernel_root_table(void) {
+  return (void*)mm_state.kernel_root_table;
+}
 
 size_t mm_get_page_size(void) { return mm_state.page_size; }
 
@@ -24,9 +26,9 @@ void* mm_get_user_mmap_base(void) { return (void*)mm_state.user_mmap_base; }
 
 size_t mm_get_user_stack_size(void) { return mm_state.user_stack_size; }
 
-void* mm_get_user_virtual_base(void) {
-  return (void*)mm_state.user_virtual_base;
-}
+void* mm_get_user_virtual_base(void) { return (void*)mm_state.user_base; }
+
+size_t mm_get_kernel_stack_size(void) { return mm_state.kernel_stack_size; }
 
 // return virtual address of the current root page table
 void* mm_get_root_table(void) {
@@ -34,41 +36,25 @@ void* mm_get_root_table(void) {
   return phys_to_virt((void*)root_table_phys);
 }
 
-size_t mm_get_kernel_thread_stack_size(void) {
-  return mm_state.kernel_thread_stack_size;
-}
-
 int mm_init(void) {
   memset(&mm_state, 0, sizeof(mm_state));
 
   mm_state.hhdm_offset = getHHDMOffset();
   mm_state.page_size = MM_DEFAULT_PAGE_SIZE;
+  mm_state.vmalloc_base = VMALLOC_BASE;
+  mm_state.vmalloc_size = VMALLOC_SIZE;
+  mm_state.user_stack_base = USER_STACK_BASE;
+  mm_state.user_stack_size = USER_STACK_SIZE;
+  mm_state.kernel_stack_size = KERNEL_STACK_SIZE;
+  mm_state.user_base = USER_VIRTUAL_BASE;
+  mm_state.user_mmap_base = USER_MMAP_BASE;
+  mm_state.kernel_root_table = get_page_table_addr();
+
   hhdm_offset = mm_state.hhdm_offset;
 
   if (mm_state.hhdm_offset == 0) {
     return -1;
   }
-
-  // mm_state.kernel_phys_base = KERNEL_PHYS_BASE;
-  mm_state.kernel_virt_base = KERNEL_VIRTUAL_BASE;
-  // mm_state.kernel_size = KERNEL_SIZE;
-
-  mm_state.vmalloc_base = VMALLOC_BASE;
-  mm_state.vmalloc_size = VMALLOC_SIZE;
-
-  mm_state.kernel_stack_base = KERNEL_STACK_BASE;
-  mm_state.kernel_stack_size = KERNEL_STACK_SIZE;
-  mm_state.kernel_thread_stack_size = KERNEL_THREAD_STACK_SIZE;
-
-  mm_state.user_virtual_base = USER_VIRTUAL_BASE;
-  mm_state.user_stack_base = USER_STACK_BASE;
-  mm_state.user_stack_size = USER_STACK_SIZE;
-  mm_state.user_kernel_stack_size = USER_KERNEL_STACK_SIZE;
-
-  mm_state.user_mmap_base = USER_MMAP_BASE;
-
-  // set kernel root table
-  mm_state.kernel_root_table = (void*)get_page_table_addr();
 
   int result =
       pmm_init(&mm_state.pmm_state, mm_state.page_size, mm_state.hhdm_offset);
@@ -117,7 +103,7 @@ mm_result_t mm_allocate_kstack(void* root_table, uintptr_t* stack_base) {
   }
 
   const size_t page_size = mm_state.page_size;
-  size_t stack_size = page_align_up(mm_state.user_kernel_stack_size, page_size);
+  size_t stack_size = page_align_up(mm_state.kernel_stack_size, page_size);
 
   // Allocate stack
   mm_flags_t flags = MM_FLAG_WRITABLE | MM_FLAG_USER;
@@ -137,7 +123,7 @@ mm_result_t mm_free_kstack(void* root_table, uintptr_t stack_base) {
   }
 
   const size_t page_size = mm_state.page_size;
-  size_t stack_size = page_align_up(mm_state.user_kernel_stack_size, page_size);
+  size_t stack_size = page_align_up(mm_state.kernel_stack_size, page_size);
 
   uintptr_t stack_start = stack_base - stack_size;
   vfree((void*)stack_start);
@@ -230,7 +216,7 @@ mm_result_t mm_verify_process_addr(void* virt_addr) {
 
   uintptr_t addr = (uintptr_t)virt_addr;
 
-  if (addr <= mm_state.user_virtual_base || addr >= mm_state.user_stack_base) {
+  if (addr <= mm_state.user_base || addr >= mm_state.user_stack_base) {
     return MM_ERR_INVALID_ADDRESS;
   }
 

@@ -113,7 +113,7 @@ int kthread_create(const char* name, thread_t** thread,
     return -1;
   }
 
-  size_t stack_size = mm_get_kernel_thread_stack_size();
+  size_t stack_size = mm_get_kernel_stack_size();
 
   if (!kthread_init(name, new_thread, stack_size, entry_point, arg)) {
     SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);

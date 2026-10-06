@@ -118,7 +118,7 @@ int fs_init(void) {
   register_basic_devices();
   register_all_devices();
 
-  print_dirs("/dev");
+  print_dirs("/userprograms");
   return 0;
 }
 

@@ -2,8 +2,8 @@
 
 #include <arch/x86_64/mmu.h>
 #include <fs/fs.h>
-#include <mm/mm.h>
 #include <mm/kheap/kheap.h>
+#include <mm/mm.h>
 #include <process/process.h>
 #include <process/scheduler.h>
 #include <stdbool.h>
@@ -12,9 +12,11 @@
 #include <utils/log.h>
 #include <utils/utils.h>
 
+#include "vma.h"
+
 const uint8_t MAGIC_ELF_BYTES[4] = {0x7F, 'E', 'L', 'F'};
 
-static bool is_valid_elf_hdr(const elf64_ehdr_t *ehdr) {
+static bool is_valid_elf_hdr(const elf64_ehdr_t* ehdr) {
   for (int i = 0; i < 4; ++i) {
     if (ehdr->e_ident[i] != MAGIC_ELF_BYTES[i]) {
       return false;
@@ -38,7 +40,7 @@ static bool is_valid_elf_hdr(const elf64_ehdr_t *ehdr) {
   return true;
 }
 
-static inline bool is_valid_elf_phdr(const elf64_phdr_t *phdr) {
+static inline bool is_valid_elf_phdr(const elf64_phdr_t* phdr) {
   if (phdr->p_memsz < phdr->p_filesz) {
     return false;
   }
@@ -54,22 +56,22 @@ static inline vma_flags_t get_elf_flag(Elf64_Word p_flags) {
   vma_flags_t flags = 0;
 
   if (p_flags & PF_R) {
-    flags |= VMA_READ; // Readable
+    flags |= VMA_READ;  // Readable
   }
 
   if (p_flags & PF_W) {
-    flags |= VMA_WRITE; // Writable
+    flags |= VMA_WRITE;  // Writable
   }
 
   if (p_flags & PF_X) {
-    flags |= VMA_EXEC; // Executable
+    flags |= VMA_EXEC;  // Executable
   }
 
   return flags;
 }
 
-int load_elf_file(process_t *process, const char *path, void **entry_point) {
-  struct file *file = fs_open(path, VFS_O_RDONLY);
+int load_elf_file(process_t* process, const char* path, void** entry_point) {
+  struct file* file = fs_open(path, VFS_O_RDONLY);
 
   if (!file) {
 #ifdef ELF_LOADER_DEBUG
@@ -85,8 +87,8 @@ int load_elf_file(process_t *process, const char *path, void **entry_point) {
   // return 1;
   // }
 
-  elf64_ehdr_t *ehdr = (elf64_ehdr_t *)kmalloc(sizeof(elf64_ehdr_t));
-  size_t bytes_read = fs_read(file, (void *)ehdr, sizeof(elf64_ehdr_t));
+  elf64_ehdr_t* ehdr = (elf64_ehdr_t*)kmalloc(sizeof(elf64_ehdr_t));
+  size_t bytes_read = fs_read(file, (void*)ehdr, sizeof(elf64_ehdr_t));
 
   if (bytes_read < sizeof(elf64_ehdr_t)) {
 #ifdef ELF_LOADER_DEBUG
@@ -107,7 +109,7 @@ int load_elf_file(process_t *process, const char *path, void **entry_point) {
   }
 
   if (entry_point != NULL) {
-    *entry_point = (void *)ehdr->e_entry;
+    *entry_point = (void*)ehdr->e_entry;
   }
 
 #ifdef ELF_LOADER_DEBUG
@@ -119,11 +121,11 @@ int load_elf_file(process_t *process, const char *path, void **entry_point) {
   log_print("\n");
 #endif
 
-  elf64_phdr_t *phdr = (elf64_phdr_t *)kmalloc(sizeof(elf64_phdr_t));
+  elf64_phdr_t* phdr = (elf64_phdr_t*)kmalloc(sizeof(elf64_phdr_t));
 
   for (size_t i = 0; i < ehdr->e_phnum; ++i) {
     fs_lseek(file, ehdr->e_phoff + i * sizeof(elf64_phdr_t), VFS_SEEK_SET);
-    bytes_read = fs_read(file, (void *)phdr, sizeof(elf64_phdr_t));
+    bytes_read = fs_read(file, (void*)phdr, sizeof(elf64_phdr_t));
 
     if (bytes_read < sizeof(elf64_phdr_t)) {
 #ifdef ELF_LOADER_DEBUG
