@@ -5,6 +5,7 @@
 #include <arch/x86_64/syscall.h>
 #include <fs/fs.h>
 #include <kernel.h>
+#include <libs/string.h>
 #include <mm/kheap/kheap.h>
 #include <mm/mm.h>
 #include <mm/pmm/pmm.h>
@@ -20,29 +21,22 @@
 #include <stdint.h>
 #include <tty/tty_output.h>
 #include <utils/log.h>
-#include <utils/utils.h>
 
 #include "elf.h"
 #include "vma.h"
 
 // #define PROCESS_DEBUG
 
-#ifdef PROCESS_DEBUG
-#define plog_print(fmt, ...) (log_print(fmt, ##__VA_ARGS__))
-#define plog_error(fmt, ...) (log_error(fmt, ##__VA_ARGS__))
-#define plog_debug(fmt, ...) (log_debug(fmt, ##__VA_ARGS__))
-#else
-#define plog_print(fmt, ...) ((void)0)
-#define plog_error(fmt, ...) ((void)0)
-#define plog_debug(fmt, ...) ((void)0)
-#endif
-
-extern spinlock_t scheduler_state_lock;
 extern struct mm_state_s mm_state;
 
 static inline uintptr_t process_mmap(uintptr_t hint_addr, size_t length,
                                      int prot, int flags, int fd,
                                      size_t offset) {
+
+  UNUSED(hint_addr);
+  UNUSED(fd);
+  UNUSED(offset);
+                                          
   process_t* current = scheduler_get_current_process();
 
   if (!current || length == 0) {
@@ -50,7 +44,6 @@ static inline uintptr_t process_mmap(uintptr_t hint_addr, size_t length,
   }
 
   if (flags & VMA_FILE_BACKED) {
-    plog_error("File-backed mmap not yet implemented!");
     return -1;
   }
 
@@ -59,7 +52,6 @@ static inline uintptr_t process_mmap(uintptr_t hint_addr, size_t length,
   uintptr_t gap_start;
 
   if (!vma_find_gap(current->mmap_vma, true, aligned_length, &gap_start)) {
-    plog_error("Failed to find a suitable gap for mmap");
     return -1;
   }
 
@@ -73,15 +65,8 @@ static inline uintptr_t process_mmap(uintptr_t hint_addr, size_t length,
                .next = NULL};
 
   if (!vma_add(current, &vma)) {
-    plog_error("Failed to add VMA for mmap");
     return -1;
   }
-
-  plog_print(
-      "mmap: Allocated VMA from 0x%lx to 0x%lx for process '%s' (PID: %zu)\n",
-      vma.vm_start, vma.vm_end, current->name, current->pid);
-  plog_print(" Flags: 0x%x, Prot: 0x%x, FD: %d, Offset: %zu\n", flags, prot, fd,
-             offset);
 
 #ifdef PROCESS_DEBUG
   vma_print(current);
@@ -104,7 +89,7 @@ void sys_mmap(syscall_frame_t* frame) {
 static inline void free_vma_pages(uintptr_t start, uintptr_t end,
                                   size_t page_size, process_t* current) {
   const size_t num_pages_to_free = (end - start) / page_size;
-  void* root_table = phys_to_virt(current->page_table);
+  void* root_table = phys_to_virt((void*)current->page_table);
 
   for (size_t i = 0; i < num_pages_to_free; i++) {
     uintptr_t page_to_free = start + i * page_size;
@@ -117,9 +102,6 @@ static inline void free_vma_pages(uintptr_t start, uintptr_t end,
       pmm_free(&mm_state.pmm_state, (void*)phys_addr);
       continue;
     }
-
-    plog_error("Failed to unmap page at 0x%lx, result: %d", page_to_free,
-               result);
   }
 }
 
@@ -205,7 +187,7 @@ static inline void update_page_protections(uintptr_t start, uintptr_t end,
                                            size_t page_size, process_t* current,
                                            int prot) {
   const size_t num_pages = (end - start) / page_size;
-  void* root_table = phys_to_virt(current->page_table);
+  void* root_table = phys_to_virt((void*)current->page_table);
   mm_flags_t flags = vma_get_flags(prot) | MM_FLAG_USER;
 
   for (size_t i = 0; i < num_pages; i++) {
@@ -213,9 +195,6 @@ static inline void update_page_protections(uintptr_t start, uintptr_t end,
     mm_result_t result = change_page_flags(root_table, (void*)virt_addr, flags);
 
     if (result != MM_SUCCESS) {
-      plog_error(
-          "Failed to change page flags for virtual address 0x%lx, result: %d",
-          virt_addr, result);
     }
   }
 }
@@ -332,19 +311,16 @@ static inline uintptr_t process_set_brk(uintptr_t new_brk) {
   process_t* current_process = scheduler_get_current_process();
 
   if (current_process == NULL) {
-    plog_error("No current process found while setting brk");
     return 0;
   }
 
   vma_t* heap_vma = current_process->heap_vma;
 
   if (heap_vma == NULL) {
-    plog_error("Current process has no heap VMA");
     return 0;
   }
 
   if (new_brk < heap_vma->vm_start) {
-    plog_error("Requested brk is below process virtual memory start");
     return current_process->brk;
   }
 
@@ -352,12 +328,8 @@ static inline uintptr_t process_set_brk(uintptr_t new_brk) {
   uintptr_t aligned_new_brk = page_align_up(new_brk, page_size);
   vma_t* next_vma = heap_vma->next;
 
-  plog_print("Current brk: 0x%lx, Requested brk: 0x%lx, Aligned brk: 0x%lx\n",
-             current_process->brk, new_brk, aligned_new_brk);
-
   // check for collision with the next VMA
   if (next_vma && aligned_new_brk > next_vma->vm_start) {
-    plog_error("Requested brk collides with next VMA");
     return current_process->brk;
   }
 
@@ -373,7 +345,7 @@ static inline uintptr_t process_set_brk(uintptr_t new_brk) {
     uintptr_t old_end = heap_vma->vm_end;
     uintptr_t new_end = aligned_new_brk;
     size_t num_pages_to_free = (old_end - new_end) / page_size;
-    void* root_table = phys_to_virt(current_process->page_table);
+    void* root_table = phys_to_virt((void*)current_process->page_table);
 
     for (size_t i = 0; i < num_pages_to_free; i++) {
       uintptr_t page_to_free = new_end + i * page_size;
@@ -386,9 +358,6 @@ static inline uintptr_t process_set_brk(uintptr_t new_brk) {
         pmm_free(&mm_state.pmm_state, (void*)phys_addr);
         continue;
       }
-
-      plog_error("Failed to unmap page at 0x%lx, result: %d", page_to_free,
-                 result);
     }
 
     // Update the heap VMA end address
@@ -406,8 +375,6 @@ void sys_brk(syscall_frame_t* frame) {
 
 #ifdef PROCESS_DEBUG
   process_t* current_process = scheduler_get_current_process();
-  plog_print("sys_brk: New brk set to 0x%lx for process '%s' (PID: %zu)\n",
-             result, current_process->name, current_process->pid);
   if (current_process) {
     vma_print(current_process);
   }
@@ -425,140 +392,153 @@ void sys_getpid(syscall_frame_t* frame) {
   frame->syscall_num = current_process->pid;
 }
 
-void kprocess_init(process_t* process) {
-  kstrcpy(process->name, "kernel");
+process_t* kprocess_init(const char* name) {
+  if (!name) {
+    return NULL;
+  }
 
-  process->page_table = (void*)mm_get_kernel_root_table();
-  process->thread_list_start = NULL;
-  process->thread_list_end = NULL;
+  process_t* process = kmalloc(sizeof(process_t));
+
+  if (!process) {
+    log_error("Failed to allocate memory for process: %s", name);
+    return NULL;
+  }
+
+  memset(process, 0, sizeof(process_t));
+  strncpy(process->name, name, PROCESS_NAME_LEN - 1);
+
+  process->page_table = (uintptr_t)mm_get_kernel_root_table();
+  process->thread_list_head = NULL;
   process->vma_head = NULL;
   process->vma_tail = NULL;
   process->heap_vma = NULL;
   process->brk = 0;
   process->mmap_vma = NULL;
-  process->alive_threads = 0;
+  process->active_threads = 0;
 
   void* file_descriptor = kmalloc(sizeof(void*) * MAX_SYSTEM_OPEN_FILES);
 
   if (!file_descriptor) {
-    plog_error("Failed to allocate file descriptor array for kernel process");
+    kfree(process);
+    return NULL;
   }
 
-  kmemset(file_descriptor, 0, sizeof(void*) * MAX_SYSTEM_OPEN_FILES);
+  memset(file_descriptor, 0, sizeof(void*) * MAX_SYSTEM_OPEN_FILES);
 
   process->open_files = (struct file**)file_descriptor;
 
   spinlock_init(&process->lock);
 
+  process->pid = scheduler_get_next_pid();
+  return process;
+}
+
+int kprocess_add_basic_fd(process_t* process) {
   // open stdin, stdout, stderr for kernel process
   process->open_files[0] = fs_open("/dev/console", VFS_O_RDONLY);
+
+  // stdout points to the same as stdin
   process->open_files[1] = fs_open("/dev/console", VFS_O_WRONLY);
-  process->open_files[2] = fs_open("/dev/console", VFS_O_WRONLY);
+
+  // stderr points to the same as stdin
+  process->open_files[2] = process->open_files[1];
 
   if (!process->open_files[0] || !process->open_files[1] ||
       !process->open_files[2]) {
-    plog_error("Failed to open standard file descriptors for kernel process");
+    return -1;
   }
+
+  // Increment the reference count for stdout, and stderr
+  fs_inc_file_refcount(process->open_files[0], 1);
+
+  return 0;
 }
 
-static bool user_process_init(process_t* process, char* name) {
-  if (process == NULL) {
-    return false;
+process_t* uprocess_init(const char* name, process_t* parent_process) {
+  if (!name || !parent_process) {
+    return NULL;
   }
 
-  kstrcpy(process->name, name);
+  process_t* process = kmalloc(sizeof(process_t));
+
+  if (!process) {
+    log_error("Failed to allocate memory for process: %s", name);
+    return NULL;
+  }
+
+  memset(process, 0, sizeof(process_t));
+  strncpy(process->name, name, PROCESS_NAME_LEN - 1);
 
   uintptr_t addr;
   mm_result_t result = mm_create_page_table(&addr);
 
   if (result != MM_SUCCESS) {
-    plog_error("Failed to create page table for user process");
-    return false;
+    kfree(process);
+    return NULL;
   }
 
-  process->page_table = (void*)addr;
-  process->thread_list_start = NULL;
-  process->thread_list_end = NULL;
+  process->page_table = (uintptr_t)addr;
+  process->thread_list_head = NULL;
   process->vma_head = NULL;
   process->vma_tail = NULL;
   process->heap_vma = NULL;
   process->brk = 0;
   process->mmap_vma = NULL;
-  process->alive_threads = 0;
+  process->active_threads = 0;
 
   void* file_descriptor = kmalloc(sizeof(void*) * MAX_SYSTEM_OPEN_FILES);
 
   if (!file_descriptor) {
-    plog_error("Failed to allocate file descriptor array for kernel process");
+    kfree(process);
+    return NULL;
   }
 
-  kmemset(file_descriptor, 0, sizeof(void*) * MAX_SYSTEM_OPEN_FILES);
+  memset(file_descriptor, 0, sizeof(void*) * MAX_SYSTEM_OPEN_FILES);
 
   process->open_files = (struct file**)file_descriptor;
 
+  for (int i = 0; i < MAX_SYSTEM_OPEN_FILES; i++) {
+    if (!parent_process->open_files[i]) {
+      continue;
+    }
+
+    process->open_files[i] = parent_process->open_files[i];
+    fs_inc_file_refcount(process->open_files[i], 1);
+  }
+
   spinlock_init(&process->lock);
 
-  return true;
+  process->pid = scheduler_get_next_pid();
+  return process;
 }
 
 int load_user_process(process_t** process, const char* elf_path, void* arg) {
   void* entry_point;
   process_t temp_process = {0};
 
-  plog_print("Loading user process from ELF file: %s\n", elf_path);
-
   int result = load_elf_file(&temp_process, elf_path, &entry_point);
 
   if (result != 0) {
     vma_free(&temp_process);
-    plog_error("Failed to load ELF file: %d", result);
     return -1;
   }
 
   vma_add_nullspace(&temp_process, 0x0, (uintptr_t)mm_get_user_virtual_base());
 
-  plog_print("ELF file loaded successfully. Entry point: 0x%lx\n",
-             (uintptr_t)entry_point);
+  process_t* current_process = scheduler_get_current_process();
+  process_t* new_process = uprocess_init("user-demo", current_process);
 
-  unsigned long flags;
-  SPIN_LOCK_ACQUIRE(&scheduler_state_lock, flags);
-
-  process_t* new_process = scheduler_add_process();
-
-  if (new_process == NULL) {
-    SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
+  if (!new_process) {
     vma_free(&temp_process);
-    plog_error("Failed to create user process");
     return -1;
   }
-
-  if (!user_process_init(new_process, "user-demo")) {
-    scheduler_remove_process(new_process->pid);
-    SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
-    vma_free(&temp_process);
-    plog_error("Failed to initialize user process");
-    return -1;
-  }
-
-  plog_print("User Process Initialized: %s, (PID: %lu)\n", new_process->name,
-             new_process->pid);
 
   // Copy the VMA list from the temporary process to the new process
   new_process->vma_head = temp_process.vma_head;
   new_process->vma_tail = temp_process.vma_tail;
 
   void (*user_main)(void*) = (void (*)(void*))entry_point;
-  thread_t* main_thread = scheduler_add_thread(new_process);
-
-  if (main_thread == NULL) {
-    scheduler_remove_process(new_process->pid);
-    SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
-    vma_free(new_process);
-    plog_error("Failed to create main thread for user process");
-    return -1;
-  }
-
-  void* root_table = phys_to_virt(new_process->page_table);
+  void* root_table = phys_to_virt((void*)new_process->page_table);
 
   // Allocate stack for the thread
   mm_result_t mm_result;
@@ -566,34 +546,23 @@ int load_user_process(process_t** process, const char* elf_path, void* arg) {
   mm_result = mm_allocate_pstack(root_table, &stack_base);
 
   if (mm_result != MM_SUCCESS) {
-    scheduler_remove_thread(new_process, main_thread->tid);
-    scheduler_remove_process(new_process->pid);
-    SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
     vma_free(new_process);
-    plog_error("Failed to allocate user stacks for main thread, error code: %d",
-               mm_result);
-    return false;
+    return -1;
   }
 
-  if (!pthread_init(new_process, "main", main_thread, (void*)stack_base,
-                    user_main, arg)) {
-    scheduler_remove_thread(new_process, main_thread->tid);
-    scheduler_remove_process(new_process->pid);
-    SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
+  thread_t* main_thread =
+      pthread_init("main", (void*)stack_base, user_main, arg);
+
+  if (!main_thread) {
     vma_free(new_process);
-    plog_error("Failed to create and initialize main thread");
     return -1;
   }
 
   // vma_heap and vma_mmap initialization
   // add guard page for heap and mmap
 
-  if (new_process->vma_tail == NULL) {
-    scheduler_remove_thread(new_process, main_thread->tid);
-    scheduler_remove_process(new_process->pid);
-    SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
+  if (!new_process->vma_tail) {
     vma_free(new_process);
-    plog_error("Failed to initialize heap and mmap VMA for user process");
     return -1;
   }
 
@@ -615,18 +584,14 @@ int load_user_process(process_t** process, const char* elf_path, void* arg) {
   vma_t* heap_vma = vma_add(new_process, &vma);
 
   if (!heap_vma) {
-    scheduler_remove_thread(new_process, main_thread->tid);
-    scheduler_remove_process(new_process->pid);
-    SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
     vma_free(new_process);
-    plog_error("Failed to add VMA for user heap");
     return -1;
   }
 
   new_process->brk = heap_vma->vm_start;
   new_process->heap_vma = heap_vma;
 
-  uintptr_t mmap_start = (uintptr_t)mm_get_user_mmap_base();
+  uintptr_t mmap_start = mm_get_user_mmap_base();
   mmap_start = page_align_down(mmap_start, page_size);
   mmap_start -= page_size;  // Skip the guard page
 
@@ -640,11 +605,7 @@ int load_user_process(process_t** process, const char* elf_path, void* arg) {
   vma_t* mmap_vma = vma_add(new_process, &vma);
 
   if (!mmap_vma) {
-    scheduler_remove_thread(new_process, main_thread->tid);
-    scheduler_remove_process(new_process->pid);
-    SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
     vma_free(new_process);
-    plog_error("Failed to add VMA for user mmap");
     return -1;
   }
 
@@ -652,11 +613,11 @@ int load_user_process(process_t** process, const char* elf_path, void* arg) {
 
   // Initialize the user stack VMA
   const size_t stack_size = mm_get_user_stack_size();
-  uintptr_t s_stack = (uintptr_t)main_thread->user_stack_base;
+  uintptr_t s_stack = main_thread->user_stack_base;
 
   s_stack -= page_align_up(stack_size, page_size);
 
-  uintptr_t e_stack = (uintptr_t)main_thread->user_stack_base;
+  uintptr_t e_stack = main_thread->user_stack_base;
 
   // Add a VMA for the user stack
   vma.vm_start = s_stack;
@@ -667,11 +628,7 @@ int load_user_process(process_t** process, const char* elf_path, void* arg) {
   vma.file_size = 0;
 
   if (!vma_add(new_process, &vma)) {
-    scheduler_remove_thread(new_process, main_thread->tid);
-    scheduler_remove_process(new_process->pid);
-    SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
     vma_free(new_process);
-    plog_error("Failed to add VMA for user stack");
     return -1;
   }
 
@@ -679,13 +636,38 @@ int load_user_process(process_t** process, const char* elf_path, void* arg) {
   vma_print(new_process);
 #endif
 
-  new_process->alive_threads = 1;
-
-  SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
-
   if (process != NULL) {
     *process = new_process;
   }
 
+  scheduler_add_process(new_process);
+  scheduler_add_thread(new_process, main_thread);
+  scheduler_queue_push(&scheduler_state.ready_queue, main_thread, TASK_READY);
+
   return 0;
+}
+
+void send_signal(thread_t* target, int signal_num) {
+  if (signal_num < 1 || signal_num > 31) {
+    return;
+  }
+
+  unsigned long flags;
+
+  spinlock_acquire(&target->lock, &flags);
+
+  target->pending_signals |= (1 << signal_num);
+
+  if (target->status == TASK_BLOCKED && target->wait_queue) {
+    scheduler_queue_remove(target->wait_queue, target);
+    scheduler_queue_push(&scheduler_state.ready_queue, target, TASK_READY);
+  }
+
+  spinlock_release(&target->lock, flags);
+}
+
+void sys_fork(syscall_frame_t* frame) {
+  // Implementation for the fork system call
+  log_info("Fork system call invoked");
+  frame->syscall_num = -1;
 }

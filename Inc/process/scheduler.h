@@ -1,5 +1,6 @@
 #pragma once
 
+#include <arch/x86_64/switch.h>
 #include <arch/x86_64/timer.h>
 #include <fs/fs.h>
 #include <stddef.h>
@@ -12,112 +13,173 @@
 #define MAX_SYSTEM_OPEN_FILES 16
 
 struct vma_s;
+struct process_s;
+typedef struct thread_queue_s thread_queue_t;
+
+extern void cleaner_add_process(struct process_s* process);
 
 typedef enum {
-  THREAD_NOTREADY,
-  THREAD_READY,
-  THREAD_RUNNING,
-  THREAD_DEAD,
-  THREAD_SLEEPING,
-  THREAD_BLOCKED
+  TASK_NOTREADY,
+  TASK_READY,
+  TASK_RUNNING,
+  TASK_DEAD,
+  TASK_SLEEPING,
+  TASK_BLOCKED
 } task_status_t;
 
-typedef enum { GS_USER = 0x0, GS_KERNEL = 0x1 } gs_state_t;
+enum {
+  SIGINT = 2,   // Interrupt from keyboard (Ctrl+C)
+  SIGKILL = 9,  // Kill signal
+};
 
 typedef struct thread_s {
   size_t tid;
   char name[THREAD_NAME_LEN];
   task_status_t status;
-  void* user_stack_base;    // base address of the user stack
-  void* kernel_stack_base;  // base address of the kernel stack
-  void* kernel_stack_ptr;   // current stack pointer for the kernel stack
-  void* user_stack_ptr;     // current stack pointer for the user stack
+  uintptr_t user_stack_base;    // base address of the user stack
+  uintptr_t kernel_stack_base;  // base address of the kernel stack
+  uintptr_t kernel_stack_ptr;   // current stack pointer for the kernel stack
+  uintptr_t user_stack_ptr;     // current stack pointer for the user stack
   timer_tick_t wakeup_time;
-  struct thread_s* next;
-  int exit_code;
-  gs_state_t gs_state;               // thread is in user or kernel mode
+
   struct process_s* parent_process;  // pointer to the parent process
-  struct thread_s* next_waiting;     // next thread in the wait queue
+  struct thread_s* next;  // pointer to sibling thread in the same process
+
+  // pointers used for queue(ready, sleeping, blocked)
+  struct thread_s* queue_next;
+  struct thread_s* queue_prev;
+
+  mutex_t* mutex_locks_head;
+  semaphore_t* semaphore_locks_head;
+  thread_queue_t* wait_queue;
+
+  spinlock_t lock;
+
+  uint32_t pending_signals;
+  uint32_t signal_mask;
 } thread_t;
 
 typedef struct process_s {
   size_t pid;
+  size_t parent_pid;
   char name[PROCESS_NAME_LEN];
-  void* page_table;
-  struct thread_s* thread_list_start;
-  struct thread_s* thread_list_end;
+  uintptr_t page_table;
+  struct thread_s* thread_list_head;
   struct vma_s* vma_head;
   struct vma_s* vma_tail;
   struct vma_s* heap_vma;
   uintptr_t brk;
   struct vma_s* mmap_vma;
+
+  struct process_s* prev;
   struct process_s* next;
-  int alive_threads;  // Number of threads that are not dead in this process
-  spinlock_t lock;    // Lock for synchronizing access to the process structure
+
+  // Number of threads that are not dead
+  int active_threads;
+
+  spinlock_t lock;
   struct file** open_files;
+  int exit_code;
 } process_t;
 
-struct scheduler_state_s {
-  process_t* process_list_start;
-  process_t* process_list_end;
-  process_t* kernel_process;
-  process_t* current_process;
-  struct thread_s* current_thread;
-  struct thread_s* idle_thread;
-  size_t total_processes;
-  size_t total_threads;
-  size_t next_pid;
-  size_t next_tid;
-};
+typedef struct thread_queue_s {
+  thread_t* head;
+  thread_t* tail;
+  size_t count;
+  spinlock_t lock;
+} thread_queue_t;
 
 // This structure holds data specific to ONE CPU core.
-typedef struct {
-  uint64_t user_sp;    // Offset 0x00
-  uint64_t kernel_sp;  // Offset 0x08
+typedef struct cpu_core_s {
+  uint64_t cpu_id;                 // Offset 0x00
+  uintptr_t user_sp;               // Offset 0x08
+  uintptr_t kernel_sp;             // Offset 0x10
+  struct thread_s* active_thread;  // The currently running thread
+  struct thread_s* idle_thread;    // The idle thread for this CPU core
+} cpu_core_t;
 
-  /*
-   * GS state expected when this thread resumes.
-   *
-   * GS_USER   -> CPU must have user GS active
-   * GS_KERNEL -> CPU must have kernel GS active
-   */
-  gs_state_t gs_state;  // Offset 0x10
-  uint64_t cpu_id;      // Offset 0x18
-} cpu_local_data_t;
+struct scheduler_state_s {
+  spinlock_t lock;
 
-typedef struct {
-  uint64_t rpt;
-  uint64_t stack;
-} context_switch_t;
+  process_t* process_list_head;
+  process_t* process_list_tail;
+
+  process_t* kernel_process;
+
+  thread_queue_t ready_queue;
+  thread_queue_t sleeping_queue;
+
+  size_t total_processes;
+
+  size_t next_pid;
+  size_t next_tid;
+
+  cpu_core_t cores[4];  // Assuming a maximum of 4 CPU cores for now
+};
+
+extern struct scheduler_state_s scheduler_state;
+
+static inline thread_t* scheduler_get_current_thread(void) {
+  cpu_core_t* core = get_current_cpu();
+  return core->active_thread;
+}
+
+static inline process_t* scheduler_get_current_process(void) {
+  thread_t* current_thread = scheduler_get_current_thread();
+  return current_thread ? current_thread->parent_process : NULL;
+}
+
+static inline process_t* scheduler_get_kernel_process(void) {
+  return scheduler_state.kernel_process;
+}
+
+static inline size_t scheduler_get_total_processes(void) {
+  return scheduler_state.total_processes;
+}
+
+static inline size_t scheduler_get_next_pid(void) {
+  return __atomic_add_fetch(&scheduler_state.next_pid, 1, __ATOMIC_SEQ_CST);
+}
+
+static inline size_t scheduler_get_next_tid(void) {
+  return __atomic_add_fetch(&scheduler_state.next_tid, 1, __ATOMIC_SEQ_CST);
+}
+
+static inline struct file* scheduler_get_fd(thread_t* thread, int fd) {
+  if (!thread || fd < 0 || fd >= MAX_SYSTEM_OPEN_FILES) {
+    return NULL;
+  }
+
+  return thread->parent_process->open_files[fd];
+}
+
+static inline void scheduler_mark_process_as_dead(process_t* process) {
+  cleaner_add_process(process);
+}
 
 void scheduler_init(void);
 
-process_t* scheduler_get_current_process(void);
+void scheduler_queue_push(thread_queue_t* queue, thread_t* thread,
+                          task_status_t status);
 
-process_t* scheduler_get_kernel_process(void);
-
-thread_t* scheduler_get_current_thread(void);
-
-thread_t* scheduler_get_idle_thread(void);
-
-size_t scheduler_get_total_processes(void);
-
-size_t scheduler_get_total_threads(void);
-
-void scheduler_yield(void);
-
-process_t* scheduler_add_process(void);
-
-thread_t* scheduler_add_thread(process_t* process);
-
-bool scheduler_remove_thread(process_t* process, size_t tid);
+thread_t* scheduler_queue_pop(thread_queue_t* queue, task_status_t status);
 
 thread_t* scheduler_get_thread(process_t* process, size_t tid);
 
-bool scheduler_remove_process(size_t pid);
+void scheduler_add_process(process_t* process);
+
+void scheduler_remove_process(process_t* process);
+
+process_t* scheduler_get_process_by_pid(size_t pid);
+
+void scheduler_add_thread(process_t* process, thread_t* thread);
+
+void scheduler_sleep_queue_push(thread_t* thread);
+
+void scheduler_yield(void);
 
 void scheduler_terminate_process(process_t* process);
 
 void scheduler_terminate_current_process(void);
 
-void scheduler_mark_process_as_dead(process_t* process);
+void scheduler_queue_remove(thread_queue_t* queue, thread_t* thread);

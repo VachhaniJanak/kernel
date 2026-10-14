@@ -78,8 +78,6 @@ void kmain(void) {
 
   ahci_init();
 
-  fs_init();
-
   scheduler_init();
 
   kernel_panic("Kernel panic: Reached end of kmain()!");

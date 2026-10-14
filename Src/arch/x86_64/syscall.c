@@ -9,6 +9,7 @@
 #define MSR_FMASK 0xC0000084           // (Flags Mask Register)
 #define MSR_GS_BASE 0xC0000101         // (GS Base Register)
 #define MSR_KERNEL_GS_BASE 0xC0000102  // (Kernel GS Base Register)
+#define MSR_FS_BASE 0xC0000100
 
 extern void syscall_entry(void);
 
@@ -22,6 +23,18 @@ uint64_t rdmsr(uint32_t msr) {
   uint32_t low, high;
   __asm__ volatile("rdmsr" : "=a"(low), "=d"(high) : "c"(msr) : "memory");
   return ((uint64_t)high << 32) | low;
+}
+
+static void enable_fsgsbase(void) {
+  uint64_t cr4;
+  // Read current CR4
+  __asm__ volatile("mov %%cr4, %0" : "=r"(cr4));
+
+  // Set bit 16 (FSGSBASE enable)
+  cr4 |= (1 << 16);
+
+  // Write back to CR4
+  __asm__ volatile("mov %0, %%cr4" ::"r"(cr4));
 }
 
 void x86_64_syscall_init(void* cpu_local_data) {
@@ -44,7 +57,8 @@ void x86_64_syscall_init(void* cpu_local_data) {
   uint64_t star = ((uint64_t)0x08 << 32) | ((uint64_t)0x10 << 48);
   wrmsr(MSR_STAR, star);
 
-  wrmsr(MSR_KERNEL_GS_BASE, (uint64_t)cpu_local_data);
+  wrmsr(MSR_GS_BASE, (uint64_t)cpu_local_data);
+  enable_fsgsbase();
 }
 
 WEAK void syscall_handler(syscall_frame_t* frame) { UNUSED(frame); };

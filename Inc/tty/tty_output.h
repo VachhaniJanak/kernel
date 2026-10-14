@@ -89,6 +89,8 @@ struct tty_output_state_s {
   // Save original colors for "Reset" (\033[0m)
   uint32_t default_fg_color;
   uint32_t default_bk_color;
+
+  mutex_t lock;
 };
 
 void tty_init_output(void);
@@ -100,7 +102,5 @@ void tty_putchar(char c);
 void tty_write(const char* str);
 
 int tty_printf(const char* format, ...);
-
-void tty_output_thread(void* arg);
 
 int tty_write_buffer(const char* buffer, size_t length);

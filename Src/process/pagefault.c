@@ -42,9 +42,16 @@ extern struct mm_state_s mm_state;
 static inline bool handle_user_page_fault(uintptr_t faulting_address) {
   pflog_debug("User Page Fault Handler:\n");
   const size_t page_size = mm_get_page_size();
-  process_t* current_process = scheduler_get_current_process();
+  thread_t* current_thread = scheduler_get_current_thread();
 
-  if (current_process == NULL) {
+  if (!current_thread) {
+    pflog_error("  No current thread found while handling page fault");
+    return false;
+  }
+
+  process_t* current_process = current_thread->parent_process;
+
+  if (!current_process) {
     pflog_error("  No current process found while handling page fault");
     return false;
   }
@@ -91,8 +98,8 @@ static inline bool handle_user_page_fault(uintptr_t faulting_address) {
 
     // Check if the faulting address falls within the current VMA
     if (!vma_get_intersection(current_vma, (uintptr_t)page_start_addr,
-                          (uintptr_t)page_start_addr + page_size, &start,
-                          &end)) {
+                              (uintptr_t)page_start_addr + page_size, &start,
+                              &end)) {
       current_vma = current_vma->next;
       continue;
     }
@@ -165,7 +172,7 @@ static inline bool handle_user_page_fault(uintptr_t faulting_address) {
     return false;
   }
 
-  void* root_table = phys_to_virt(current_process->page_table);
+  void* root_table = phys_to_virt((void*)current_process->page_table);
   mm_result_t result =
       map_page(root_table, page_start_addr, page_phys_addr, flags);
 
@@ -226,6 +233,7 @@ void page_fault_isr_handler(struct interrupt_ecframe_s* frame) {
           "Segmentation fault: Invalid user space address 0x%lx\n" ANSI_RESET,
           faulting_address);
       scheduler_terminate_current_process();
+      while(1);
 
 #ifdef PAGE_FAULT_DEBUG
       log_error("Segmentation fault: Invalid user space address 0x%lx",
@@ -244,6 +252,7 @@ void page_fault_isr_handler(struct interrupt_ecframe_s* frame) {
               "Failed to handle user page fault at address 0x%lx\n" ANSI_RESET,
               faulting_address);
     scheduler_terminate_current_process();
+    while(1);
 
 #ifdef PAGE_FAULT_DEBUG
     log_error("Failed to handle user page fault at address 0x%lx",

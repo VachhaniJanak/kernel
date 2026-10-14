@@ -102,6 +102,7 @@ target_sources(${CMAKE_PROJECT_NAME}.elf PRIVATE
     Src/arch/x86_64/hpet.c
     Src/arch/x86_64/syscall.c
     Src/arch/x86_64/syscall.S
+    Src/arch/x86_64/switch.S
 
     Src/drivers/serial/serial.c
     Src/drivers/screen/screen.c
@@ -126,12 +127,13 @@ target_sources(${CMAKE_PROJECT_NAME}.elf PRIVATE
     Src/process/elf.c
     Src/process/process.c
     Src/process/thread.c
-    Src/process/cleanup.c
+    Src/process/cleaner.c
     Src/process/waitqueue.c
     Src/process/vma.c
     Src/process/pagefault.c
 
     Src/syscall/syscall.c
+    Src/syscall/handlers.c
 
     Src/input/keyboard/keyboard.c
     Src/input/keyboard/layout_us_qwerty.c

@@ -93,7 +93,7 @@ int fs_init(void) {
     return -1;
   }
 
-  create_required_directories();
+  // create_required_directories();
 
   // mount virtual filesystems like /dev, /proc, /sys, etc.
 
@@ -401,6 +401,8 @@ static struct file* add_file(struct dentry* dentry, struct inode* inode,
   new_file->f_refcount = 1;
   new_file->private_data = NULL;
   new_file->prev = NULL;
+
+  mutex_init(&new_file->lock);
 
   unsigned long flags_lock;
 
@@ -912,7 +914,15 @@ size_t fs_read(struct file* f, void* buf, size_t len) {
     return -1;
   }
 
-  return f->inode->fops->read(f, buf, len, (size_t*)&f->f_pos);
+  mutex_acquire(&f->lock);
+  mutex_acquire(&f->inode->lock);
+
+  int bytes_read = f->inode->fops->read(f, buf, len, (size_t*)&f->f_pos);
+
+  mutex_release(&f->inode->lock);
+  mutex_release(&f->lock);
+
+  return (size_t)bytes_read;
 }
 
 size_t fs_write(struct file* f, const void* buf, size_t len) {
@@ -934,7 +944,15 @@ size_t fs_write(struct file* f, const void* buf, size_t len) {
     return -1;
   }
 
-  return f->inode->fops->write(f, buf, len, (size_t*)&f->f_pos);
+  mutex_acquire(&f->lock);
+  mutex_acquire(&f->inode->lock);
+
+  size_t bytes_written = f->inode->fops->write(f, buf, len, (size_t*)&f->f_pos);
+
+  mutex_release(&f->inode->lock);
+  mutex_release(&f->lock);
+
+  return bytes_written;
 }
 
 static inline int close(struct file* f) {
@@ -967,18 +985,18 @@ off_t fs_lseek(struct file* f, off_t off, int whence) {
   }
 
   /*
-   * Directories should normally not use lseek().
+   *  Directories should normally not use lseek().
    * Remove this check if your design supports directory offsets.
    */
   if (VFS_ISDIR(f->inode->mode)) {
     return -1;
   }
 
-  if (f->f_pos < 0 || f->inode->size < 0) {
+  if (f->f_pos < 0) {
     return -1;
   }
 
-  size_t base;
+  off_t base;
 
   switch (whence) {
     case VFS_SEEK_SET:
@@ -1619,7 +1637,7 @@ void debug_dump_mount_table(void) {
         "[%d] Mount Point: %s, Filesystem Type: %d, Superblock Root Inode: "
         "%p\n",
         index, current->mount_point ? current->mount_point->name : "NULL",
-        current->ops ? current->ops->fs_type : -1,
+        current->ops ? current->ops->fs_type : 0,
         current->sb ? current->sb->root : NULL);
     current = current->next;
     index++;

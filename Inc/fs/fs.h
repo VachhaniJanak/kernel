@@ -124,6 +124,7 @@ struct file {
   void* private_data;
   struct file* prev;
   struct file* next;
+  mutex_t lock;
 };
 
 // Directory entry
@@ -176,6 +177,18 @@ struct mount_table {
   struct mount* root;  // Root filesystem mount
   uint32_t count;
 };
+
+static inline void fs_inc_file_refcount(struct file* f, int increment) {
+  if (f) {
+    __atomic_add_fetch(&f->f_refcount, increment, __ATOMIC_SEQ_CST);
+  }
+}
+
+static inline void fs_dec_file_refcount(struct file* f, int decrement) {
+  if (f) {
+    __atomic_sub_fetch(&f->f_refcount, decrement, __ATOMIC_SEQ_CST);
+  }
+}
 
 struct inode* fs_get_dev_dir_inode(void);
 

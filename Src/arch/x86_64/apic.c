@@ -48,8 +48,8 @@
 #define IOAPICARB 0x02
 #define IOREDTBL 0x10
 
-static uint32_t* lapic_base = NULL;
-static uint32_t* ioapic_base = NULL;
+static volatile uint32_t* lapic_base = NULL;
+static volatile uint32_t* ioapic_base = NULL;
 
 static inline void lapic_write(uint32_t reg, uint32_t value) {
   lapic_base[reg / 4] = value;
@@ -183,5 +183,6 @@ void init_apic(void) {
             ioapicver & 0xFF, max_redirection_entries);
 #endif
 
-  init_apic_timer();
 }
+
+size_t apic_get_id(void) { return lapic_read(APIC_APICID) >> 24; }

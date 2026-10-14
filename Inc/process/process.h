@@ -12,7 +12,7 @@
 #define USER_CS_REGS 0x23
 #define RFLAGS_IF 0x202
 
-void kprocess_init(process_t* process);
+process_t* kprocess_init(const char* name);
 
 int load_user_process(process_t** process, const char* elf_path, void* arg);
 
@@ -25,3 +25,7 @@ void sys_munmap(syscall_frame_t* frame);
 void sys_mmap(syscall_frame_t* frame);
 
 void sys_mprotect(syscall_frame_t* frame);
+
+int kprocess_add_basic_fd(process_t* process);
+
+void sys_fork(syscall_frame_t* frame);

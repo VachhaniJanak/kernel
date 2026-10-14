@@ -1,70 +1,95 @@
 #include <arch/x86_64/isr.h>
 #include <arch/x86_64/syscall.h>
 #include <arch/x86_64/timer.h>
+#include <libs/string.h>
+#include <mm/kheap/kheap.h>
 #include <mm/mm.h>
 #include <mm/utils.h>
 #include <mm/vmm/vmm.h>
+#include <platform/attributes.h>
 #include <process/locks.h>
 #include <process/process.h>
 #include <process/scheduler.h>
 #include <process/thread.h>
+#include <stdatomic.h>
 #include <utils/log.h>
-#include <utils/utils.h>
 
-// #define THREAD_DEBUG
+void thread_relase_locks(thread_t* thread) {
+  mutex_t* mutex_lock = thread->mutex_locks_head;
 
-extern spinlock_t scheduler_state_lock;
+  while (mutex_lock) {
+    mutex_t* next_mutex = mutex_lock->next;
+    mutex_release(mutex_lock);
+    mutex_lock = next_mutex;
+  }
 
-static void thread_exit(thread_t* thread) {
-  thread->status = THREAD_DEAD;
-  thread->exit_code = 0;
+  semaphore_t* semaphore_lock = thread->semaphore_locks_head;
 
-  unsigned long flags;
+  while (semaphore_lock) {
+    semaphore_t* next_semaphore = semaphore_lock->next;
+    semaphore_up(semaphore_lock);
+    semaphore_lock = next_semaphore;
+  }
+
+  // remove from any wait queue it might be in
+  if (thread->wait_queue) {
+    scheduler_queue_remove(thread->wait_queue, thread);
+    thread->wait_queue = NULL;
+  }
+}
+
+static void kthread_exit(thread_t* thread) {
   process_t* parent_process = thread->parent_process;
 
-  SPIN_LOCK_ACQUIRE(&parent_process->lock, flags);
+  __atomic_fetch_sub(&parent_process->active_threads, 1, __ATOMIC_SEQ_CST);
+  thread_relase_locks(thread);
 
-  parent_process->alive_threads--;
+  thread->status = TASK_DEAD;
 
-  SPIN_LOCK_RELEASE(&parent_process->lock, flags);
+  scheduler_yield();
   while (true);
 }
 
 static void thread_exec_wrapper(void (*function)(void*), void* arg,
                                 thread_t* thread) {
   function(arg);
-  thread_exit(thread);
+  kthread_exit(thread);
 }
 
-static bool kthread_init(const char* name, thread_t* thread, size_t stack_size,
-                         void (*entry_point)(void*), void* arg) {
-  kstrcpy(thread->name, name);
-  thread->status = THREAD_READY;
+thread_t* kthread_init(const char* name, size_t stack_size,
+                       void (*entry_point)(void*), void* arg) {
+  UNUSED(stack_size);
 
-  // Allocate stack for the thread
-  void* root_table = phys_to_virt(mm_get_kernel_root_table());
-
-  mm_result_t result;
-  result =
-      mm_allocate_kstack(root_table, (uintptr_t*)&thread->kernel_stack_base);
-
-  if (result != MM_SUCCESS) {
-#ifdef THREAD_DEBUG
-    log_error("Failed to allocate kernel stacks for thread '%s', Error: %d",
-              name, result);
-#endif
-    return false;
+  if (!name || !entry_point) {
+    return NULL;
   }
 
-  uintptr_t addr = (uintptr_t)thread->kernel_stack_base;
+  thread_t* thread = kmalloc(sizeof(thread_t));
+
+  if (!thread) {
+    return NULL;
+  }
+
+  memset(thread, 0, sizeof(thread_t));
+  strncpy(thread->name, name, THREAD_NAME_LEN - 1);
+
+  mm_result_t result;
+  result = mm_allocate_kstack(&thread->kernel_stack_base);
+
+  if (result != MM_SUCCESS) {
+    return NULL;
+  }
+
+  uintptr_t addr = thread->kernel_stack_base;
   size_t frame_size = sizeof(struct scheduler_frame_s);
 
-  thread->kernel_stack_ptr = (void*)(addr - frame_size);
+  thread->kernel_stack_ptr = addr - frame_size;
   thread->user_stack_ptr = thread->user_stack_base;
-  thread->gs_state = 0;
 
   // Set up the initial stack frame for the thread
-  struct scheduler_frame_s* frame = thread->kernel_stack_ptr;
+  struct scheduler_frame_s* frame = (void*)thread->kernel_stack_ptr;
+
+  memset(frame, 0, sizeof(struct scheduler_frame_s));
 
   frame->regs.rdi = (uint64_t)entry_point;
   frame->regs.rsi = (uint64_t)arg;
@@ -76,187 +101,87 @@ static bool kthread_init(const char* name, thread_t* thread, size_t stack_size,
   frame->cs = KERNEL_CS_REGS;
   frame->ss = KERNEL_SS_REGS;
 
-#ifdef THREAD_DEBUG
-  log_print("Kernel Thread Initialized: %s, (TID: %lu)\n", name, thread->tid);
-  log_print("  User Stack: 0x%lx\n", (uintptr_t)thread->user_stack_base);
-  log_print("  Kernel Stack: 0x%lx\n", (uintptr_t)thread->kernel_stack_base);
-  log_print("  Stack Pointer: 0x%lx\n", (uintptr_t)thread->kernel_stack_ptr);
-  log_print("  Entry Point: 0x%lx\n", (uintptr_t)entry_point);
-  log_print("  Argument: 0x%lx\n", (uintptr_t)arg);
-#endif
-
-  return true;
+  thread->tid = scheduler_get_next_tid();
+  return thread;
 }
 
 int kthread_create(const char* name, thread_t** thread,
                    void (*entry_point)(void*), void* arg) {
-  unsigned long flags;
-  SPIN_LOCK_ACQUIRE(&scheduler_state_lock, flags);
+  thread_t* new_thread = kthread_init(name, 0, entry_point, arg);
 
-  process_t* kernel_process = scheduler_get_kernel_process();
-
-  if (kernel_process == NULL) {
-    SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
-#ifdef THREAD_DEBUG
-    log_error("Faild to get kernel process");
-#endif
+  if (!new_thread) {
     return -1;
   }
 
-  thread_t* new_thread = scheduler_add_thread(kernel_process);
-
-  if (new_thread == NULL) {
-    SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
-#ifdef THREAD_DEBUG
-    log_error("Faild to create thread for process %s", kernel_process->name);
-#endif
-    return -1;
-  }
-
-  size_t stack_size = mm_get_kernel_stack_size();
-
-  if (!kthread_init(name, new_thread, stack_size, entry_point, arg)) {
-    SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
-#ifdef THREAD_DEBUG
-    log_error("Faild to initialize thread '%s' for process %s", name,
-              kernel_process->name);
-#endif
-    return -1;
-  }
-
-  SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
-
-  if (thread != NULL) {
+  if (thread) {
     *thread = new_thread;
   }
 
-  SPIN_LOCK_ACQUIRE(&kernel_process->lock, flags);
-
-  kernel_process->alive_threads++;
-
-  SPIN_LOCK_RELEASE(&kernel_process->lock, flags);
-
-  return new_thread->tid;
+  scheduler_add_thread(scheduler_state.kernel_process, new_thread);
+  scheduler_queue_push(&scheduler_state.ready_queue, new_thread, TASK_READY);
+  return 0;
 }
 
 void kthread_sleep(size_t milliseconds) {
-  unsigned long flags;
-  SPIN_LOCK_ACQUIRE(&scheduler_state_lock, flags);
-
   thread_t* current_thread = scheduler_get_current_thread();
-
-  if (current_thread == NULL) {
-    SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
-
-#ifdef THREAD_DEBUG
-    log_error("Failed to get current thread: kthread_sleep");
-#endif
-    return;
-  }
-
-  current_thread->status = THREAD_SLEEPING;
-
   timer_tick_t current_time = timer_get_ticks();
   timer_tick_t wakeup_time = current_time + timer_ms_to_ticks(milliseconds);
-  current_thread->wakeup_time = wakeup_time;
 
-  SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
+  current_thread->wakeup_time = wakeup_time;
+  
+  scheduler_sleep_queue_push(current_thread);
   scheduler_yield();
 }
 
 int kthread_join(thread_t* child_thread) {
-  if (child_thread == NULL) {
-    return -1;
-  }
-
-  unsigned long flags;
-  SPIN_LOCK_ACQUIRE(&scheduler_state_lock, flags);
-
   thread_t* current_thread = scheduler_get_current_thread();
 
-  if (current_thread == NULL) {
-    SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
-#ifdef THREAD_DEBUG
-    log_error("Failed to get current thread: kthread_join");
-#endif
-    return -1;
-  }
-
-  SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
-
-  while (child_thread->status != THREAD_DEAD) {
-    current_thread->status = THREAD_SLEEPING;
-
-    // Sleep for 100 ms
+  while (child_thread->status != TASK_DEAD) {
     timer_tick_t current_time = timer_get_ticks();
     timer_tick_t wakeup_time = current_time + timer_ms_to_ticks(100);
 
     current_thread->wakeup_time = wakeup_time;
-
+    scheduler_sleep_queue_push(current_thread);
     scheduler_yield();
   }
 
-  current_thread->status = THREAD_RUNNING;
-  return child_thread->exit_code;
+  current_thread->status = TASK_RUNNING;
+  return 0;
 }
 
-bool pthread_init(process_t* process, const char* name, thread_t* thread,
-                  void* pstack, void (*entry_point)(void*), void* arg) {
-  if (process == NULL || thread == NULL || entry_point == NULL ||
-      pstack == NULL) {
-    return false;
+thread_t* pthread_init(const char* name, void* pstack,
+                       void (*entry_point)(void*), void* arg) {
+  if (!entry_point || !pstack) {
+    return NULL;
   }
 
-  kstrcpy(thread->name, name);
-  thread->status = THREAD_READY;
-  thread->user_stack_base = pstack;
+  thread_t* thread = kmalloc(sizeof(thread_t));
 
-  void* root_table = phys_to_virt(process->page_table);
+  if (!thread) {
+    return NULL;
+  }
 
-  // Allocate stack for the thread
+  memset(thread, 0, sizeof(thread_t));
+  strncpy(thread->name, name, THREAD_NAME_LEN - 1);
+
   mm_result_t result;
-  result =
-      mm_allocate_kstack(root_table, (uintptr_t*)&thread->kernel_stack_base);
+  result = mm_allocate_kstack(&thread->kernel_stack_base);
 
   if (result != MM_SUCCESS) {
-    mm_free_pstack(root_table, (uintptr_t)thread->user_stack_base);
-#ifdef THREAD_DEBUG
-    log_error("Failed to allocate kernel stacks for thread '%s', Error: %d",
-              name, result);
-#endif
-    return false;
+    return NULL;
   }
 
   // initialize the stack pointer for the thread
+  uintptr_t addr = thread->kernel_stack_base;
   size_t frame_size = sizeof(struct scheduler_frame_s);
-  thread->kernel_stack_ptr =
-      (void*)((uintptr_t)thread->kernel_stack_base - frame_size);
+  thread->kernel_stack_ptr = addr - frame_size;
+
+  thread->user_stack_base = (uintptr_t)pstack;
   thread->user_stack_ptr = thread->user_stack_base;
-  thread->gs_state = 0;
 
-  uintptr_t phys_addr;
-  result = get_mapping(root_table, thread->kernel_stack_ptr, &phys_addr);
+  struct scheduler_frame_s* frame = (void*)thread->kernel_stack_ptr;
 
-  if (result != MM_SUCCESS) {
-#ifdef THREAD_DEBUG
-    log_error("Failed to get physical address for thread '%s' stack, Error: %d",
-              name, result);
-#endif
-    return false;
-  }
-
-#ifdef THREAD_DEBUG
-  log_print("User Thread Initialized: %s, (PID: %lu) (TID: %lu)\n", name,
-            process->pid, thread->tid);
-  log_print("  User Stack: 0x%lx\n", (uintptr_t)thread->user_stack_base);
-  log_print("  Kernel Stack: 0x%lx\n", (uintptr_t)thread->kernel_stack_base);
-  log_print("  Stack Pointer: 0x%lx\n", (uintptr_t)thread->kernel_stack_ptr);
-  log_print("  Physical Address of Stack Pointer: 0x%lx\n", phys_addr);
-  log_print("  Entry Point: 0x%lx\n", (uintptr_t)entry_point);
-  log_print("  Argument: 0x%lx\n", (uintptr_t)arg);
-#endif
-
-  struct scheduler_frame_s* frame = phys_to_virt((void*)phys_addr);
+  memset(frame, 0, sizeof(struct scheduler_frame_s));
 
   frame->regs.rdi = (uint64_t)arg;
   frame->rip = (uint64_t)entry_point;
@@ -265,155 +190,62 @@ bool pthread_init(process_t* process, const char* name, thread_t* thread,
   frame->rflags = RFLAGS_IF;
   frame->cs = USER_CS_REGS;
   frame->ss = USER_SS_REGS;
-  return true;
+
+  thread->tid = scheduler_get_next_tid();
+  return thread;
 }
 
 static inline void pthread_sleep(size_t milliseconds) {
-  unsigned long flags;
-  SPIN_LOCK_ACQUIRE(&scheduler_state_lock, flags);
-
   thread_t* current_thread = scheduler_get_current_thread();
-
-  if (current_thread == NULL) {
-    SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
-#ifdef THREAD_DEBUG
-    log_error("Failed to get current thread: sys_pthread_sleep");
-#endif
-    return;
-  }
-
-  current_thread->status = THREAD_SLEEPING;
-
   timer_tick_t current_time = timer_get_ticks();
   timer_tick_t wakeup_time = current_time + timer_ms_to_ticks(milliseconds);
+
   current_thread->wakeup_time = wakeup_time;
-
-  SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
-
+  scheduler_sleep_queue_push(current_thread);
   scheduler_yield();
 }
 
 static inline void pthread_exit(int exit_code) {
-  unsigned long flags;
-  SPIN_LOCK_ACQUIRE(&scheduler_state_lock, flags);
-
   thread_t* current_thread = scheduler_get_current_thread();
+  process_t* parent_process = current_thread->parent_process;
 
-  if (current_thread == NULL) {
-    SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
-#ifdef THREAD_DEBUG
-    log_error("Failed to get current thread: sys_pthread_exit");
-#endif
-    return;
-  }
+  parent_process->exit_code = exit_code;
 
-  current_thread->exit_code = exit_code;
-  current_thread->status = THREAD_DEAD;
-
-  SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
-
-  SPIN_LOCK_ACQUIRE(&current_thread->parent_process->lock, flags);
-  current_thread->parent_process->alive_threads--;
-
-  if (current_thread->parent_process->alive_threads <= 0) {
+  if (__atomic_sub_fetch(&parent_process->active_threads, 1,
+                         __ATOMIC_SEQ_CST) == 0) {
     scheduler_mark_process_as_dead(current_thread->parent_process);
   }
 
-  SPIN_LOCK_RELEASE(&current_thread->parent_process->lock, flags);
+  thread_relase_locks(current_thread);
+  current_thread->status = TASK_DEAD;
 
   scheduler_yield();
 }
 
-static inline int pthread_create(size_t* tid, void (*entry_point)(void*),
-                                 void* arg, void* pstack) {
-  unsigned long flags;
-  SPIN_LOCK_ACQUIRE(&scheduler_state_lock, flags);
-
-  process_t* process = scheduler_get_current_process();
-
-  if (process == NULL || entry_point == NULL || pstack == NULL) {
-    SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
-#ifdef THREAD_DEBUG
-    log_error("Failed to get current process: sys_pthread_create");
-#endif
-    return -1;
-  }
-
-  thread_t* new_thread = scheduler_add_thread(process);
-
-  if (new_thread == NULL) {
-    SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
-#ifdef THREAD_DEBUG
-    log_error("Failed to create thread for process '%s' (PID: %zu)",
-              process->name, process->pid);
-#endif
-    return -1;
-  }
-
-  if (!pthread_init(process, process->name, new_thread, pstack, entry_point,
-                    arg)) {
-    SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
-#ifdef THREAD_DEBUG
-    log_error("Failed to initialize thread '%s' for process '%s' (PID: %zu)",
-              process->name, process->name, process->pid);
-#endif
-    return -1;
-  }
-
-  SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
-
-  if (tid != NULL) {
-    *tid = new_thread->tid;
-  }
-
-  SPIN_LOCK_ACQUIRE(&process->lock, flags);
-
-  process->alive_threads++;
-
-  SPIN_LOCK_RELEASE(&process->lock, flags);
-
-  return 0;
+void thread_exit(int exit_code) {
+  pthread_exit(exit_code);
 }
 
 static inline int pthread_join(size_t tid) {
-  unsigned long flags;
-  SPIN_LOCK_ACQUIRE(&scheduler_state_lock, flags);
-
-  process_t* current_process = scheduler_get_current_process();
   thread_t* current_thread = scheduler_get_current_thread();
-
-  if (current_process == NULL || current_thread == NULL) {
-    SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
-    return -1;
-  }
-
+  process_t* current_process = current_thread->parent_process;
   thread_t* child_thread = scheduler_get_thread(current_process, tid);
 
-  if (child_thread == NULL) {
-    SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
+  if (!child_thread) {
     return -1;
   }
 
-  SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
-
-  while (child_thread->status != THREAD_DEAD) {
-    current_thread->status = THREAD_SLEEPING;
-
+  while (child_thread->status != TASK_DEAD) {
     timer_tick_t current_time = timer_get_ticks();
     timer_tick_t wakeup_time = current_time + timer_ms_to_ticks(100);
 
-    // Sleep for the specified duration
     current_thread->wakeup_time = wakeup_time;
-
-    // Give the CPU to someone else
+    scheduler_sleep_queue_push(current_thread);
     scheduler_yield();
   }
 
-  // SPIN_LOCK_ACQUIRE(&scheduler_state_lock, flags);
-  current_thread->status = THREAD_RUNNING;
-  // SPIN_LOCK_RELEASE(&scheduler_state_lock, flags);
-
-  return child_thread->exit_code;
+  current_thread->status = TASK_RUNNING;
+  return 0;
 }
 
 void sys_pthread_sleep(syscall_frame_t* frame) {
@@ -435,28 +267,21 @@ void sys_pthread_create(syscall_frame_t* frame) {
 
   if (!is_page_aligned((uintptr_t)pstack, page_size)) {
     frame->syscall_num = (size_t)-1;
-#ifdef THREAD_DEBUG
-    log_error("User stack pointer is not page-aligned: 0x%lx",
-              (uintptr_t)pstack);
-#endif
     return;
   }
 
-  size_t tid;
-  int result = pthread_create(&tid, entry_point, arg, pstack);
+  thread_t* thread = pthread_init("user_thread", pstack, entry_point, arg);
 
-  if (result != 0) {
+  if (!thread) {
     frame->syscall_num = (size_t)-1;
-#ifdef THREAD_DEBUG
-    log_error("Failed to create thread, error code: %d", result);
-#endif
     return;
   }
 
-  frame->syscall_num = tid;
-#ifdef THREAD_DEBUG
-  log_print("Thread created with ID: %zu\n", tid);
-#endif
+  frame->syscall_num = thread->tid;
+
+  process_t* current_process = scheduler_get_current_process();
+  scheduler_add_thread(current_process, thread);
+  scheduler_queue_push(&scheduler_state.ready_queue, thread, TASK_READY);
 }
 
 void sys_pthread_join(syscall_frame_t* frame) {

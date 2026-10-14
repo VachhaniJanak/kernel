@@ -1,4 +1,3 @@
-#include <arch/x86_64/apic.h>
 #include <arch/x86_64/io.h>
 #include <arch/x86_64/isr.h>
 #include <arch/x86_64/mmu.h>
@@ -34,8 +33,13 @@ WEAK void page_fault_isr_handler(struct interrupt_ecframe_s* frame) {
 
 WEAK void gp_fault_isr_handler(struct interrupt_ecframe_s* frame) {
   UNUSED(frame);
-  LOG_ERROR("General Protection Fault");
-  LOG_ERROR("Error code: 0x%lx", frame->error_code);
+  log_print("General Protection Fault:\n");
+  log_print("  Error code: 0x%lx\n", frame->error_code);
+  log_print("  RIP: 0x%lx\n", frame->rip);
+  log_print("  RSP: 0x%lx\n", frame->rsp);
+  log_print("  RFLAGS: 0x%lx\n", frame->rflags);
+  log_print("  CS: 0x%lx\n", frame->cs);
+  log_print("  SS: 0x%lx\n", frame->ss);
   while (1);
 }
 
@@ -45,9 +49,14 @@ WEAK void invalid_tss_isr_handler(struct interrupt_ecframe_s* frame) {
   while (1);
 }
 
-WEAK void invalid_opcode_isr_handler(struct interrupt_ecframe_s* frame) {
+WEAK void invalid_opcode_isr_handler(struct interrupt_frame_s* frame) {
   UNUSED(frame);
-  LOG_ERROR("Invalid Opcode\n");
+  log_error("Invalid Opcode Fault:");
+  log_print("  RIP: 0x%lx\n", frame->rip);
+  log_print("  RSP: 0x%lx\n", frame->rsp);
+  log_print("  RFLAGS: 0x%lx\n", frame->rflags);
+  log_print("  CS: 0x%lx\n", frame->cs);
+  log_print("  SS: 0x%lx\n", frame->ss);
   while (1);
 }
 
@@ -60,16 +69,12 @@ WEAK void double_fault_isr_handler(struct interrupt_ecframe_s* frame) {
   while (1);
 }
 
-// WEAK uint64_t timer_irq_isr_handler(struct scheduler_frame_s* frame) {
-//   UNUSED(frame);
-//   lapic_eoi();
-// }
-
-WEAK void keyboard_irq_isr_handler(void) {
-  volatile int scancode = inb(0x60);
-  lapic_eoi();
+WEAK void timer_irq_isr_handler(struct scheduler_frame_s* frame) {
+  UNUSED(frame);
 }
 
-WEAK void ahci_irq_isr_handler(void) { lapic_eoi(); }
+WEAK void keyboard_irq_isr_handler(void) { volatile char scancode = inb(0x60); }
 
-WEAK void apic_timer_irq_isr_handler(void) { lapic_eoi(); }
+WEAK void ahci_irq_isr_handler(void) {}
+
+WEAK void apic_timer_irq_isr_handler(void) {}

@@ -4,8 +4,9 @@
 #include <drivers/ahci/ahci.h>
 #include <drivers/pcie/pcie.h>
 #include <libs/string.h>
-#include <mm/mm.h>
 #include <mm/kheap/kheap.h>
+#include <mm/mm.h>
+#include <process/locks.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <utils/log.h>
@@ -68,6 +69,8 @@ typedef struct {
 
   uint32_t sata_port_index;
   uint32_t num_slots;
+
+  mutex_t lock;
 } ahci_sata_state_t;
 
 typedef struct {
@@ -243,6 +246,7 @@ static ahci_result_t sata_init(uint32_t sata_port_index, uint32_t num_slots) {
 
   sata_state->sata_port_index = sata_port_index;
   sata_state->num_slots = num_slots;
+  mutex_init(&sata_state->lock);
 
   ahci_log_print("Initializing SATA port: %zu\n", sata_port_index);
   ahci_log_print("  Port command register: 0x%08X\n", port->command);
@@ -666,8 +670,11 @@ static int ahci_read_disk(struct block_device* dev, void* buffer,
     return -1;  // Failure
   }
 
+  mutex_acquire(&sata_state->lock);
   bool result = _ahci_read_disk(sata_state, start_lba, sector_count,
                                 (void*)physical_buffer_addr);
+
+  mutex_release(&sata_state->lock);
 
   if (result) {
     memcpy(buffer, private_buffer, sector_count * AHCI_SECTOR_SIZE);
@@ -699,8 +706,13 @@ static int ahci_write_disk(struct block_device* dev, const void* buffer,
     return -1;  // Failure
   }
 
+  mutex_acquire(&sata_state->lock);
+
   bool result = _ahci_write_disk(sata_state, start_lba, sector_count,
                                  (void*)physical_buffer_addr);
+
+  mutex_release(&sata_state->lock);
+
   if (result) {
     kfree(private_buffer);
     return 0;  // Success

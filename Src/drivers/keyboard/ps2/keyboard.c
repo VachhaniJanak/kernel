@@ -184,15 +184,11 @@ static inline uint16_t get_modifiers(struct ps2_kbd_state_s* kbd_state) {
 
   return modifiers;
 }
+
 static inline void scancode_helper(struct ps2_kbd_state_s* kbd_state,
                                    uint8_t scancode, bool released,
                                    bool extended, const uint8_t* sc_to_kc,
                                    const uint8_t* ext_sc_to_kc) {
-  if (kbd_state->keys_pressed[scancode] && !released) {
-    // Key is already pressed, ignore the event
-    return;
-  }
-
   uint8_t key_code;
 
   if (extended) {
@@ -201,13 +197,22 @@ static inline void scancode_helper(struct ps2_kbd_state_s* kbd_state,
     key_code = sc_to_kc[scancode];
   }
 
+  // Key is already pressed
+  if (kbd_state->keys_pressed[scancode] && !released) {
+    update_keyboard_state(kbd_state, key_code, true);
+
+    uint16_t modifiers = get_modifiers(kbd_state);
+    keyboard_process_key_handler(key_code, modifiers, true, true);
+    return;
+  }
+
   // key is released
   if (released) {
     kbd_state->keys_pressed[scancode] = false;
     update_keyboard_state(kbd_state, key_code, false);
 
     uint16_t modifiers = get_modifiers(kbd_state);
-    keyboard_process_key_handler(key_code, modifiers, false);
+    keyboard_process_key_handler(key_code, modifiers, false, false);
     return;
   }
 
@@ -216,7 +221,7 @@ static inline void scancode_helper(struct ps2_kbd_state_s* kbd_state,
   update_keyboard_state(kbd_state, key_code, true);
 
   uint16_t modifiers = get_modifiers(kbd_state);
-  keyboard_process_key_handler(key_code, modifiers, true);
+  keyboard_process_key_handler(key_code, modifiers, true, false);
 }
 
 static inline void process_scancode2(struct ps2_kbd_state_s* kbd_state,
@@ -273,5 +278,4 @@ void keyboard_irq_isr_handler(void) {
   uint8_t scancode = inb(PS2_DATA_PORT);
   process_scancode2(&keyboard_state, scancode, scancode_set2_to_keycode,
                     extended_scancode_set2_to_keycode);
-  lapic_eoi();
 }

@@ -83,19 +83,19 @@ size_t mm_get_kernel_stack_size(void);
 
 size_t mm_get_page_size(void);
 
-void* mm_get_user_stack_base(void);
+uintptr_t mm_get_user_stack_base(void);
 
-void* mm_get_user_mmap_base(void);
+uintptr_t mm_get_user_mmap_base(void);
 
 size_t mm_get_user_stack_size(void);
 
-void* mm_get_user_virtual_base(void);
+uintptr_t mm_get_user_virtual_base(void);
 
 mm_result_t mm_create_page_table(uintptr_t* user_root_table);
 
-mm_result_t mm_allocate_kstack(void* root_table, uintptr_t* stack_base);
+mm_result_t mm_allocate_kstack(uintptr_t* stack_base);
 
-mm_result_t mm_free_kstack(void* root_table, uintptr_t stack_base);
+mm_result_t mm_free_kstack(uintptr_t stack_base);
 
 mm_result_t mm_allocate_pstack(void* root_table, uintptr_t* stack_base);
 

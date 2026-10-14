@@ -1,8 +1,10 @@
 #include <drivers/keyboard/ps2/keyboard.h>
 #include <input/keyboard/keyboard.h>
+#include <libs/string.h>
 #include <process/locks.h>
 #include <process/scheduler.h>
 #include <process/waitqueue.h>
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <tty/tty.h>
@@ -10,54 +12,50 @@
 
 extern const char layout_us_qwerty[256][2];
 
-#define BUFFER_SIZE 256
-
-waitqueue_t kbd_waitqueue;
-static spinlock_t kbd_buf_lock = {0};
-static kbd_key_event_t kbd_key_events_buf[BUFFER_SIZE] = {0};
-static size_t head = 0;
-static size_t tail = 0;
+struct kbd_state_s kbd_state;
 
 void keyboard_init(void) {
-  spinlock_init(&kbd_buf_lock);
-  waitqueue_init(&kbd_waitqueue);
+  memset(&kbd_state.queue, 0, sizeof(kbd_state.queue));
+  waitqueue_init(&kbd_state.waitqueue);
+  mutex_init(&kbd_state.lock);
   ps2_init();
 }
 
-static inline bool is_queue_empty(void) { return head == tail; }
+// Producer
+static bool queue_enqueue(key_queue_t* q, uint32_t unicode, uint8_t keycode,
+                          uint16_t modifiers, bool is_pressed, bool is_repeat) {
+  size_t current_tail = atomic_load_explicit(&q->tail, memory_order_relaxed);
+  size_t current_head = atomic_load_explicit(&q->head, memory_order_acquire);
 
-static inline bool is_queue_full(void) {
-  return (tail + 1) % BUFFER_SIZE == head;
-}
-
-static inline bool enqueue(uint32_t unicode, uint8_t keycode,
-                           uint16_t modifiers, bool is_pressed) {
-  unsigned long flags;
-  SPIN_LOCK_ACQUIRE(&kbd_buf_lock, flags);
-
-  if (is_queue_full()) {
-    SPIN_LOCK_RELEASE(&kbd_buf_lock, flags);
+  if ((current_tail - current_head) >= KBD_QUEUE_SIZE) {
     return false;
   }
 
-  kbd_key_events_buf[tail] = (kbd_key_event_t){.unicode = unicode,
-                                               .keycode = keycode,
-                                               .modifiers = modifiers,
-                                               .is_pressed = is_pressed};
+  q->buffer[current_tail & (KBD_QUEUE_SIZE - 1)] =
+      (kbd_key_event_t){.unicode = unicode,
+                        .keycode = keycode,
+                        .modifiers = modifiers,
+                        .is_pressed = is_pressed,
+                        .is_repeat = is_repeat};
 
-  tail = (tail + 1) % BUFFER_SIZE;
-  SPIN_LOCK_RELEASE(&kbd_buf_lock, flags);
+  atomic_store_explicit(&q->tail, current_tail + 1, memory_order_release);
   return true;
 }
 
-static inline bool dequeue(kbd_key_event_t* event) {
-  if (is_queue_empty()) {
+// Consumer
+static bool queue_dequeue(key_queue_t* q, kbd_key_event_t* out_keycode) {
+  size_t current_head = atomic_load_explicit(&q->head, memory_order_relaxed);
+  size_t current_tail = atomic_load_explicit(&q->tail, memory_order_acquire);
+
+  // Check if queue is empty
+  if (current_head == current_tail) {
     return false;
   }
 
-  *event = kbd_key_events_buf[head];
-  head = (head + 1) % BUFFER_SIZE;
+  kbd_key_event_t* key_event = &q->buffer[current_head & (KBD_QUEUE_SIZE - 1)];
+  *out_keycode = *key_event;
 
+  atomic_store_explicit(&q->head, current_head + 1, memory_order_release);
   return true;
 }
 
@@ -84,19 +82,19 @@ static inline char translate_keycode(uint8_t keycode, uint16_t modifiers) {
 }
 
 void keyboard_process_key_handler(uint8_t keycode, uint16_t modifiers,
-                                  bool is_pressed) {
+                                  bool is_pressed, bool is_repeat) {
   const uint32_t ch = (uint32_t)translate_keycode(keycode, modifiers);
 
-  enqueue(ch, keycode, modifiers, is_pressed);
-  waitqueue_wake(&kbd_waitqueue);
+  queue_enqueue(&kbd_state.queue, ch, keycode, modifiers, is_pressed,
+                is_repeat);
+  waitqueue_wake(&kbd_state.waitqueue);
 }
 
-bool kbd_dqueue_key_event(kbd_key_event_t* event) {
-  unsigned long flags;
-  SPIN_LOCK_ACQUIRE(&kbd_buf_lock, flags);
+bool kbd_dequeue_key_event(kbd_key_event_t* event) {
+  if (!queue_dequeue(&kbd_state.queue, event)) {
+    waitqueue_wait(&kbd_state.waitqueue);
+    return false;
+  }
 
-  bool result = dequeue(event);
-
-  SPIN_LOCK_RELEASE(&kbd_buf_lock, flags);
-  return result;
+  return true;
 }

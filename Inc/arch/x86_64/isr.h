@@ -33,7 +33,21 @@ struct interrupt_ecframe_s {
   uint64_t ss;
 };
 
+// non error code
+struct interrupt_frame_s {
+  struct regs_frame_s regs;
+
+  uint64_t rip;
+  uint64_t cs;
+  uint64_t rflags;
+  uint64_t rsp;
+  uint64_t ss;
+};
+
 struct scheduler_frame_s {
+  uint64_t user_gs_base;
+  uint64_t user_fs_base;
+
   struct regs_frame_s regs;
 
   uint64_t rip;
@@ -55,11 +69,10 @@ void apic_timer_irq_isr(void);
 
 void page_fault_isr_handler(struct interrupt_ecframe_s* frame);
 void invalid_tss_isr_handler(struct interrupt_ecframe_s* frame);
-void invalid_opcode_isr_handler(struct interrupt_ecframe_s* frame);
+void invalid_opcode_isr_handler(struct interrupt_frame_s* frame);
 void double_fault_isr_handler(struct interrupt_ecframe_s* frame);
 void gp_fault_isr_handler(struct interrupt_ecframe_s* frame);
-// uint64_t timer_irq_isr_handler(struct scheduler_frame_s* frame);
+void timer_irq_isr_handler(struct scheduler_frame_s* frame);
 void keyboard_irq_isr_handler(void);
 void ahci_irq_isr_handler(void);
 void apic_timer_irq_isr_handler(void);
-

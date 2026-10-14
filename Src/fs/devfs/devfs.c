@@ -613,7 +613,7 @@ int devfs_close(struct file *file) {
 }
 
 int devfs_read(struct file *file, void *buf, size_t len, size_t *off) {
-  if (!file || !file->inode || !buf || len != 0 || !off) {
+  if (!file || !file->inode || !buf || !off) {
     return -1;
   }
 

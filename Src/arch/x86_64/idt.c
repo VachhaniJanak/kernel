@@ -3,7 +3,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-IDTEntryTypedef idt[256] __attribute__((aligned(16))) = {0};
+volatile IDTEntryTypedef idt[256] __attribute__((aligned(16))) = {0};
 
 void set_idt_entry(size_t vector, void (*handler)(void), uint8_t ist,
                    uint8_t g_type, uint8_t dpl) {

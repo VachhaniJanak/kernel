@@ -12,8 +12,6 @@
 #include <utils/printf.h>
 #include <utils/utils.h>
 
-#define OUTPUT_BUFFER_SIZE 1024
-
 static const uint32_t ansi_colors[8] = {
     0x000000, 0xCC0000, 0x4E9A06, 0xC4A000,  // Black, Red, Green, Yellow
     0x3465A4, 0x75507B, 0x06989A, 0xD3D7CF   // Blue, Magenta, Cyan, White
@@ -26,13 +24,8 @@ static const uint32_t ansi_bright_colors[8] = {
 
 static struct tty_output_state_s tty_state = {0};
 
-static mutex_t tty_output_lock = {0};
-static uint8_t tty_output_buffer[OUTPUT_BUFFER_SIZE] = {0};
-static uint16_t head = 0;
-static uint16_t tail = 0;
-
 void tty_init_output(void) {
-  mutex_init(&tty_output_lock);
+  mutex_init(&tty_state.lock);
 
   // screen
   tty_state.screen_width = screen_get_screen_width();
@@ -114,32 +107,6 @@ void tty_init_output(void) {
   // Save original colors for "Reset" (\033[0m)
   tty_state.default_fg_color = tty_state.fg_color;
   tty_state.default_bk_color = tty_state.bk_color;
-}
-
-static inline bool is_queue_empty(void) { return head == tail; }
-
-static inline bool is_queue_full(void) {
-  return (tail + 1) % OUTPUT_BUFFER_SIZE == head;
-}
-
-static inline bool enqueue(char c) {
-  if (is_queue_full()) {
-    return false;
-  }
-
-  tty_output_buffer[tail] = c;
-  tail = (tail + 1) % OUTPUT_BUFFER_SIZE;
-  return true;
-}
-
-static inline bool dequeue(char* c) {
-  if (is_queue_empty()) {
-    return false;
-  }
-
-  *c = tty_output_buffer[head];
-  head = (head + 1) % OUTPUT_BUFFER_SIZE;
-  return true;
 }
 
 static inline void draw_vertical_line(uint32_t x_start, uint32_t line_width,
@@ -471,91 +438,42 @@ static inline void _tty_putchar(char c) {
 
 static inline void _tty_putchar_wrap(char c, void* arg) {
   UNUSED(arg);
-  mutex_acquire(&tty_output_lock);
-  enqueue(c);
-  mutex_release(&tty_output_lock);
+  _tty_putchar(c);
 }
 
-void tty_putchar(char c) { _tty_putchar_wrap(c, NULL); }
+void tty_putchar(char c) { _tty_putchar(c); }
 
 void tty_write(const char* str) {
-  mutex_acquire(&tty_output_lock);
+  mutex_acquire(&tty_state.lock);
 
   while (*str) {
-    enqueue(*str++);
+    _tty_putchar(*str++);
   }
 
-  mutex_release(&tty_output_lock);
+  mutex_release(&tty_state.lock);
 }
 
 int tty_printf(const char* format, ...) {
+  mutex_acquire(&tty_state.lock);
   va_list va;
   va_start(va, format);
 
   int ret = vfctprintf(_tty_putchar_wrap, NULL, format, va);
 
   va_end(va);
+  mutex_release(&tty_state.lock);
   return ret;
 }
 
 int tty_write_buffer(const char* buffer, size_t length) {
-  mutex_acquire(&tty_output_lock);
+  mutex_acquire(&tty_state.lock);
 
   int count = 0;
 
-  for (size_t i = 0; i < length; i++) {
-    if (enqueue(buffer[i])) {
-      count++;
-      continue;
-    }
-    break;  // Buffer is full, stop writing
+  while (count < (int)length) {
+    _tty_putchar(buffer[count++]);
   }
 
-  mutex_release(&tty_output_lock);
+  mutex_release(&tty_state.lock);
   return count;
-}
-
-static inline void tty_blink_cursor(bool force_hide) {
-  static bool cursor_visible = true;
-
-  if (cursor_visible && !force_hide) {
-    // Draw the cursor as a filled rectangle
-    screen_draw_char('_', tty_state.cursor_x, tty_state.cursor_y,
-                     tty_state.bk_color, tty_state.fg_color);
-  } else {
-    // Erase the cursor by redrawing the character at the cursor position
-    screen_draw_char(' ', tty_state.cursor_x, tty_state.cursor_y,
-                     tty_state.bk_color, tty_state.fg_color);
-  }
-
-  cursor_visible = !cursor_visible;
-}
-
-void tty_output_thread(void* arg) {
-  UNUSED(arg);
-
-  static timer_tick_t blink_timer = 0;
-  blink_timer = timer_get_ticks();
-
-  while (true) {
-    char c;
-
-    if (dequeue(&c)) {
-      tty_blink_cursor(true);
-      _tty_putchar(c);
-      continue;  // Skip the sleep if we processed a character
-    }
-
-    // If the queue is empty, we can blink the cursor
-    const timer_tick_t current_ticks = timer_get_ticks();
-    const timer_tick_t blink_interval_ticks = timer_ms_to_ticks(300);
-
-    if (timer_get_delta_tick(blink_timer, current_ticks) >=
-        blink_interval_ticks) {
-      tty_blink_cursor(false);
-      blink_timer = timer_get_ticks();
-    }
-
-    kthread_sleep(100);
-  }
 }

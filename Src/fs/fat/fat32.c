@@ -140,7 +140,7 @@ static void create_lfn_entry(struct fat32_lfn_entry* lfn, const char* name,
   lfn->type = 0;
   lfn->checksum = checksum;
 
-  int name_idx = (seq - 1) * 13;
+  size_t name_idx = (seq - 1) * 13;
 
   for (int i = 0; i < 5; i++) {
     if (name[name_idx] != '\0') {

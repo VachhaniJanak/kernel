@@ -20,13 +20,13 @@ void* mm_get_kernel_root_table(void) {
 
 size_t mm_get_page_size(void) { return mm_state.page_size; }
 
-void* mm_get_user_stack_base(void) { return (void*)mm_state.user_stack_base; }
+uintptr_t mm_get_user_stack_base(void) { return mm_state.user_stack_base; }
 
-void* mm_get_user_mmap_base(void) { return (void*)mm_state.user_mmap_base; }
+uintptr_t mm_get_user_mmap_base(void) { return mm_state.user_mmap_base; }
 
 size_t mm_get_user_stack_size(void) { return mm_state.user_stack_size; }
 
-void* mm_get_user_virtual_base(void) { return (void*)mm_state.user_base; }
+uintptr_t mm_get_user_virtual_base(void) { return mm_state.user_base; }
 
 size_t mm_get_kernel_stack_size(void) { return mm_state.kernel_stack_size; }
 
@@ -97,8 +97,8 @@ mm_result_t mm_create_page_table(uintptr_t* user_root_table) {
   return MM_SUCCESS;
 }
 
-mm_result_t mm_allocate_kstack(void* root_table, uintptr_t* stack_base) {
-  if (root_table == NULL || stack_base == NULL) {
+mm_result_t mm_allocate_kstack(uintptr_t* stack_base) {
+  if (!stack_base) {
     return MM_ERR_INVALID_PAGE_TABLE;
   }
 
@@ -117,8 +117,8 @@ mm_result_t mm_allocate_kstack(void* root_table, uintptr_t* stack_base) {
   return MM_SUCCESS;
 }
 
-mm_result_t mm_free_kstack(void* root_table, uintptr_t stack_base) {
-  if (root_table == NULL) {
+mm_result_t mm_free_kstack(uintptr_t stack_base) {
+  if (!stack_base) {
     return MM_ERR_INVALID_PAGE_TABLE;
   }
 

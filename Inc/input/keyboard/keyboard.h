@@ -1,9 +1,12 @@
 #pragma once
 
+#include <process/locks.h>
 #include <process/waitqueue.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+
+#define KBD_QUEUE_SIZE 1024
 
 typedef enum {
   KBD_MODIFIER_LSHIFT = 0x01,
@@ -21,14 +24,33 @@ typedef struct {
   uint32_t unicode;    // (e.g., 'A', or 0 if it's an arrow key)
   uint8_t keycode;     // The physical grid coordinate (e.g., KEY_R3_C2)
   uint16_t modifiers;  // Bitmask for modifier keys (Shift, Ctrl, Alt, etc.)
-  bool is_pressed;     // True if pressed, False if released
+  bool is_pressed;
+  bool is_repeat;
 } kbd_key_event_t;
 
-extern waitqueue_t kbd_waitqueue;
+typedef struct {
+  kbd_key_event_t buffer[KBD_QUEUE_SIZE];
+  _Atomic size_t head;  // Read index
+  _Atomic size_t tail;  // Write index
+} key_queue_t;
+
+struct kbd_state_s {
+  waitqueue_t waitqueue;
+  key_queue_t queue;
+  mutex_t lock;
+};
+
+extern struct kbd_state_s kbd_state;
+
+static inline void kbd_aquire(void) { mutex_acquire(&kbd_state.lock); }
+
+static inline void kbd_release(void) { mutex_release(&kbd_state.lock); }
 
 void keyboard_init(void);
 
 void keyboard_process_key_handler(uint8_t keycode, uint16_t modifiers,
-                                  bool is_pressed);
+                                  bool is_pressed, bool is_repeat);
 
-bool kbd_dqueue_key_event(kbd_key_event_t* event);
+bool kbd_dequeue_key_event(kbd_key_event_t* event);
+
+void kbd_release_waitqueue(void);

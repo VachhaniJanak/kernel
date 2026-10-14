@@ -1,5 +1,6 @@
 #include <input/keyboard/keyboard.h>
 #include <input/keyboard/keycode.h>
+#include <libs/string.h>
 #include <platform/attributes.h>
 #include <process/locks.h>
 #include <process/scheduler.h>
@@ -9,60 +10,26 @@
 #include <tty/tty_input.h>
 #include <tty/tty_output.h>
 #include <utils/log.h>
-#include <utils/utils.h>
 
-// #define TTY_INPUT_DEBUG
-
-#define LINE_BUFFER_SIZE 256
-#define LINE_BUFFER_QUEUE_SIZE 1024
+#define LINE_BUFFER_SIZE 512
 
 static char line_buffer[LINE_BUFFER_SIZE];
-static uint32_t line_buffer_index;
-static waitqueue_t line_buffer_waitqueue;
-
-static char line_buffer_queue[LINE_BUFFER_QUEUE_SIZE];
-static uint16_t head = 0;
-static uint16_t tail = 0;
-static mutex_t queue_lock;
-
-static inline void queue_init(void) {
-  head = 0;
-  tail = 0;
-}
-
-static inline bool queue_is_empty(void) { return head == tail; }
-
-static inline bool queue_is_full(void) {
-  return ((tail + 1) % LINE_BUFFER_QUEUE_SIZE) == head;
-}
-
-static inline bool queue_enqueue(char c) {
-  if (queue_is_full()) {
-    return false;
-  }
-
-  line_buffer_queue[tail] = c;
-  tail = (tail + 1) % LINE_BUFFER_QUEUE_SIZE;
-  return true;
-}
-
-static inline bool queue_dequeue(char* c) {
-  if (queue_is_empty()) {
-    return false;
-  }
-
-  *c = line_buffer_queue[head];
-  head = (head + 1) % LINE_BUFFER_QUEUE_SIZE;
-  return true;
-}
+static uint32_t line_buffer_index = 0;
+static bool is_reading;
+static uint32_t read_count;
+static waitqueue_t waitqueue;
+static mutex_t tty_lock;
 
 void tty_init_input(void) {
+  memset(line_buffer, 0, LINE_BUFFER_SIZE);
+
   line_buffer_index = 0;
   line_buffer[0] = '\0';
+  is_reading = false;
+  read_count = 0;
 
-  queue_init();
-  waitqueue_init(&line_buffer_waitqueue);
-  mutex_init(&queue_lock);
+  waitqueue_init(&waitqueue);
+  mutex_init(&tty_lock);
 }
 
 static inline void tty_process_keyboard_event(kbd_key_event_t event) {
@@ -110,37 +77,20 @@ static inline void tty_process_keyboard_event(kbd_key_event_t event) {
     // Terminate the string
     line_buffer[line_buffer_index++] = '\n';
     line_buffer[line_buffer_index] = '\0';
-
-#ifdef TTY_INPUT_DEBUG
-    log_print("TTY Input: %s\n", line_buffer);
-    log_print("Line Buffer Index: %u\n", line_buffer_index);
-#endif
-
-    for (uint32_t i = 0; i < line_buffer_index; i++) {
-      if (!queue_enqueue(line_buffer[i])) {
-        kthread_sleep(10);
-      }
-    }
-
+    read_count = line_buffer_index;
     line_buffer_index = 0;
 
     // WAKE UP THE SHELL!
-#ifdef TTY_INPUT_DEBUG
-    log_print("Waking up the shell...\n");
-#endif
-
-    waitqueue_wake(&line_buffer_waitqueue);
-
-#ifdef TTY_INPUT_DEBUG
-    log_print("Shell woken up.\n");
-#endif
+    if (waitqueue_wake(&waitqueue)) {
+      is_reading = true;
+    }
     return;
   }
 
   // Handle Standard Printable Characters
   if (event.unicode != 0) {
     // Prevent buffer overflow
-    if (line_buffer_index < LINE_BUFFER_SIZE - 2) {
+    if (line_buffer_index < LINE_BUFFER_SIZE - 2 && !is_reading) {
       line_buffer[line_buffer_index++] = (char)event.unicode;
 
       // Echo it to the screen so the user sees what they typed!
@@ -154,58 +104,40 @@ void tty_kdb_event_read_thread(void* arg) {
 
   kbd_key_event_t events = {0};
 
-  while (true) {
-    if (kbd_dqueue_key_event(&events)) {
-      tty_process_keyboard_event(events);
-      continue;
-    }
+  kbd_aquire();
 
-    waitqueue_wait(&kbd_waitqueue);
+  while (true) {
+    if (kbd_dequeue_key_event(&events)) {
+      tty_process_keyboard_event(events);
+    }
   }
+
+  kbd_release();
 }
 
 int tty_read_input(char* buffer, size_t length) {
-  if (buffer == NULL || length == 0) {
+  if (!buffer || length == 0) {
     return -1;
   }
 
-#ifdef TTY_INPUT_DEBUG
-  log_print("tty_read_input called with length: %zu\n", length);
-#endif
+  mutex_acquire(&tty_lock);
 
-  mutex_acquire(&queue_lock);
-
-  while (queue_is_empty()) {
-    waitqueue_wait(&line_buffer_waitqueue);
+  if (read_count == 0) {
+    waitqueue_wait(&waitqueue);
   }
 
-#ifdef TTY_INPUT_DEBUG
-  log_print("Queue is not empty, proceeding with input read.\n");
-#endif
+  size_t max_length = length - 1;
 
-  int count = 0;
-  char c;
-
-  while (count < (int)length - 1) {
-    if (queue_dequeue(&c)) {
-      buffer[count++] = c;
-      if (c == '\n') break;
-    } else {
-      break;
-    }
+  if (read_count < max_length) {
+    max_length = read_count;
   }
 
-#ifdef TTY_INPUT_DEBUG
-  log_print("Read %d characters from the queue.\n", count);
-#endif
+  memcpy(buffer, line_buffer, max_length);
+  buffer[max_length] = '\0';
 
-  mutex_release(&queue_lock);
+  read_count = 0;
+  is_reading = false;
 
-#ifdef TTY_INPUT_DEBUG
-  log_print("tty_read_input completed, returning count: %d\n", count);
-#endif
-
-  // Null-terminate the string
-  buffer[count] = '\0';
-  return count;
+  mutex_release(&tty_lock);
+  return (int)max_length;
 }
