@@ -129,4 +129,4 @@ run:
 		-d int,guest_errors,cpu_reset \
 		-D test/qemu.log \
 		-net none \
-		-serial stdio
+		-serial stdio 

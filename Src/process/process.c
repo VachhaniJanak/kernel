@@ -32,12 +32,11 @@ extern struct mm_state_s mm_state;
 static inline uintptr_t process_mmap(uintptr_t hint_addr, size_t length,
                                      int prot, int flags, int fd,
                                      size_t offset) {
-
   UNUSED(hint_addr);
   UNUSED(fd);
   UNUSED(offset);
-                                          
-  process_t* current = scheduler_get_current_process();
+
+  process_t *current = scheduler_get_current_process();
 
   if (!current || length == 0) {
     return -1;
@@ -74,32 +73,32 @@ static inline uintptr_t process_mmap(uintptr_t hint_addr, size_t length,
   return gap_start;
 }
 
-void sys_mmap(syscall_frame_t* frame) {
-  uintptr_t addr = (uintptr_t)frame->arg1;  // Hint for where user wants it
+void sys_mmap(syscall_frame_t *frame) {
+  uintptr_t addr = (uintptr_t)frame->arg1; // Hint for where user wants it
   size_t length = (size_t)frame->arg2;
-  int prot = (int)frame->arg3;          // Read/Write/Execute permissions
-  int flags = (int)frame->arg4;         // Anonymous, Private, etc.
-  int fd = (int)frame->arg5;            // File descriptor (ignored for Anon)
-  size_t offset = (size_t)frame->arg6;  // File offset (ignored for Anon)
+  int prot = (int)frame->arg3;         // Read/Write/Execute permissions
+  int flags = (int)frame->arg4;        // Anonymous, Private, etc.
+  int fd = (int)frame->arg5;           // File descriptor (ignored for Anon)
+  size_t offset = (size_t)frame->arg6; // File offset (ignored for Anon)
 
   uintptr_t result = process_mmap(addr, length, prot, flags, fd, offset);
   frame->syscall_num = result;
 }
 
 static inline void free_vma_pages(uintptr_t start, uintptr_t end,
-                                  size_t page_size, process_t* current) {
+                                  size_t page_size, process_t *current) {
   const size_t num_pages_to_free = (end - start) / page_size;
-  void* root_table = phys_to_virt((void*)current->page_table);
+  void *root_table = phys_to_virt((void *)current->page_table);
 
   for (size_t i = 0; i < num_pages_to_free; i++) {
     uintptr_t page_to_free = start + i * page_size;
     uintptr_t phys_addr = 0;
 
     mm_result_t result =
-        unmap_page(root_table, (void*)page_to_free, &phys_addr);
+        unmap_page(root_table, (void *)page_to_free, &phys_addr);
 
     if (result == MM_SUCCESS && phys_addr != 0) {
-      pmm_free(&mm_state.pmm_state, (void*)phys_addr);
+      pmm_free(&mm_state.pmm_state, (void *)phys_addr);
       continue;
     }
   }
@@ -107,13 +106,13 @@ static inline void free_vma_pages(uintptr_t start, uintptr_t end,
 
 static inline int process_munmap(uintptr_t addr, size_t length) {
   const size_t page_size = mm_get_page_size();
-  process_t* current = scheduler_get_current_process();
+  process_t *current = scheduler_get_current_process();
 
   if (!current || length == 0 || addr % page_size != 0) {
     return -1;
   }
 
-  vma_t* current_vma = current->mmap_vma;
+  vma_t *current_vma = current->mmap_vma;
   uintptr_t end_addr = addr;
   end_addr += page_align_up(length, page_size);
 
@@ -158,24 +157,24 @@ static inline int process_munmap(uintptr_t addr, size_t length) {
       vma_add(current, &r_vma);
       free_vma_pages(start, end, page_size, current);
     } else {
-      return -1;  // Invalid case, should not happen
+      return -1; // Invalid case, should not happen
     }
 
     current_vma = current_vma->prev;
   }
 
-  return 0;  // No overlapping VMA found
+  return 0; // No overlapping VMA found
 }
 
-void sys_munmap(syscall_frame_t* frame) {
-  uintptr_t addr = (uintptr_t)frame->arg1;  // Hint for where user wants it
+void sys_munmap(syscall_frame_t *frame) {
+  uintptr_t addr = (uintptr_t)frame->arg1; // Hint for where user wants it
   size_t length = (size_t)frame->arg2;
 
   int result = process_munmap(addr, length);
   frame->syscall_num = result;
 
 #ifdef PROCESS_DEBUG
-  process_t* current_process = scheduler_get_current_process();
+  process_t *current_process = scheduler_get_current_process();
 
   if (current_process) {
     vma_print(current_process);
@@ -184,15 +183,16 @@ void sys_munmap(syscall_frame_t* frame) {
 }
 
 static inline void update_page_protections(uintptr_t start, uintptr_t end,
-                                           size_t page_size, process_t* current,
+                                           size_t page_size, process_t *current,
                                            int prot) {
   const size_t num_pages = (end - start) / page_size;
-  void* root_table = phys_to_virt((void*)current->page_table);
+  void *root_table = phys_to_virt((void *)current->page_table);
   mm_flags_t flags = vma_get_flags(prot) | MM_FLAG_USER;
 
   for (size_t i = 0; i < num_pages; i++) {
     uintptr_t virt_addr = start + i * page_size;
-    mm_result_t result = change_page_flags(root_table, (void*)virt_addr, flags);
+    mm_result_t result =
+        change_page_flags(root_table, (void *)virt_addr, flags);
 
     if (result != MM_SUCCESS) {
     }
@@ -202,13 +202,13 @@ static inline void update_page_protections(uintptr_t start, uintptr_t end,
 static inline int process_mprotect(uintptr_t addr, size_t length,
                                    uint32_t prot) {
   const size_t page_size = mm_get_page_size();
-  process_t* current = scheduler_get_current_process();
+  process_t *current = scheduler_get_current_process();
 
   if (!current || length == 0 || addr % page_size != 0) {
     return -1;
   }
 
-  vma_t* current_vma = current->mmap_vma;
+  vma_t *current_vma = current->mmap_vma;
   uintptr_t end_addr = addr;
   end_addr += page_align_up(length, page_size);
 
@@ -281,16 +281,16 @@ static inline int process_mprotect(uintptr_t addr, size_t length,
       vma_add(current, &c_vma);
       update_page_protections(start, end, page_size, current, prot);
     } else {
-      return -1;  // Invalid case, should not happen
+      return -1; // Invalid case, should not happen
     }
 
     current_vma = current_vma->prev;
   }
 
-  return 0;  // Successfully updated permissions
+  return 0; // Successfully updated permissions
 }
 
-void sys_mprotect(syscall_frame_t* frame) {
+void sys_mprotect(syscall_frame_t *frame) {
   uintptr_t addr = (uintptr_t)frame->arg1;
   size_t length = (size_t)frame->arg2;
   uint32_t prot = (uint32_t)frame->arg3;
@@ -299,7 +299,7 @@ void sys_mprotect(syscall_frame_t* frame) {
   frame->syscall_num = result;
 
 #ifdef PROCESS_DEBUG
-  process_t* current_process = scheduler_get_current_process();
+  process_t *current_process = scheduler_get_current_process();
 
   if (current_process) {
     vma_print(current_process);
@@ -308,13 +308,13 @@ void sys_mprotect(syscall_frame_t* frame) {
 }
 
 static inline uintptr_t process_set_brk(uintptr_t new_brk) {
-  process_t* current_process = scheduler_get_current_process();
+  process_t *current_process = scheduler_get_current_process();
 
   if (current_process == NULL) {
     return 0;
   }
 
-  vma_t* heap_vma = current_process->heap_vma;
+  vma_t *heap_vma = current_process->heap_vma;
 
   if (heap_vma == NULL) {
     return 0;
@@ -326,7 +326,7 @@ static inline uintptr_t process_set_brk(uintptr_t new_brk) {
 
   const size_t page_size = mm_get_page_size();
   uintptr_t aligned_new_brk = page_align_up(new_brk, page_size);
-  vma_t* next_vma = heap_vma->next;
+  vma_t *next_vma = heap_vma->next;
 
   // check for collision with the next VMA
   if (next_vma && aligned_new_brk > next_vma->vm_start) {
@@ -345,17 +345,17 @@ static inline uintptr_t process_set_brk(uintptr_t new_brk) {
     uintptr_t old_end = heap_vma->vm_end;
     uintptr_t new_end = aligned_new_brk;
     size_t num_pages_to_free = (old_end - new_end) / page_size;
-    void* root_table = phys_to_virt((void*)current_process->page_table);
+    void *root_table = phys_to_virt((void *)current_process->page_table);
 
     for (size_t i = 0; i < num_pages_to_free; i++) {
       uintptr_t page_to_free = new_end + i * page_size;
       uintptr_t phys_addr = 0;
 
       mm_result_t result =
-          unmap_page(root_table, (void*)page_to_free, &phys_addr);
+          unmap_page(root_table, (void *)page_to_free, &phys_addr);
 
       if (result == MM_SUCCESS && phys_addr != 0) {
-        pmm_free(&mm_state.pmm_state, (void*)phys_addr);
+        pmm_free(&mm_state.pmm_state, (void *)phys_addr);
         continue;
       }
     }
@@ -368,21 +368,21 @@ static inline uintptr_t process_set_brk(uintptr_t new_brk) {
   return current_process->brk;
 }
 
-void sys_brk(syscall_frame_t* frame) {
+void sys_brk(syscall_frame_t *frame) {
   uintptr_t new_brk = (uintptr_t)frame->arg1;
   uintptr_t result = process_set_brk(new_brk);
   frame->syscall_num = result;
 
 #ifdef PROCESS_DEBUG
-  process_t* current_process = scheduler_get_current_process();
+  process_t *current_process = scheduler_get_current_process();
   if (current_process) {
     vma_print(current_process);
   }
 #endif
 }
 
-void sys_getpid(syscall_frame_t* frame) {
-  process_t* current_process = scheduler_get_current_process();
+void sys_getpid(syscall_frame_t *frame) {
+  process_t *current_process = scheduler_get_current_process();
 
   if (current_process == NULL) {
     frame->syscall_num = (size_t)-1;
@@ -392,12 +392,12 @@ void sys_getpid(syscall_frame_t* frame) {
   frame->syscall_num = current_process->pid;
 }
 
-process_t* kprocess_init(const char* name) {
+process_t *kprocess_init(const char *name) {
   if (!name) {
     return NULL;
   }
 
-  process_t* process = kmalloc(sizeof(process_t));
+  process_t *process = kmalloc(sizeof(process_t));
 
   if (!process) {
     log_error("Failed to allocate memory for process: %s", name);
@@ -416,16 +416,16 @@ process_t* kprocess_init(const char* name) {
   process->mmap_vma = NULL;
   process->active_threads = 0;
 
-  void* file_descriptor = kmalloc(sizeof(void*) * MAX_SYSTEM_OPEN_FILES);
+  void *file_descriptor = kmalloc(sizeof(void *) * MAX_SYSTEM_OPEN_FILES);
 
   if (!file_descriptor) {
     kfree(process);
     return NULL;
   }
 
-  memset(file_descriptor, 0, sizeof(void*) * MAX_SYSTEM_OPEN_FILES);
+  memset(file_descriptor, 0, sizeof(void *) * MAX_SYSTEM_OPEN_FILES);
 
-  process->open_files = (struct file**)file_descriptor;
+  process->open_files = (struct file **)file_descriptor;
 
   spinlock_init(&process->lock);
 
@@ -433,7 +433,7 @@ process_t* kprocess_init(const char* name) {
   return process;
 }
 
-int kprocess_add_basic_fd(process_t* process) {
+int kprocess_add_basic_fd(process_t *process) {
   // open stdin, stdout, stderr for kernel process
   process->open_files[0] = fs_open("/dev/console", VFS_O_RDONLY);
 
@@ -454,12 +454,12 @@ int kprocess_add_basic_fd(process_t* process) {
   return 0;
 }
 
-process_t* uprocess_init(const char* name, process_t* parent_process) {
+process_t *uprocess_init(const char *name, process_t *parent_process) {
   if (!name || !parent_process) {
     return NULL;
   }
 
-  process_t* process = kmalloc(sizeof(process_t));
+  process_t *process = kmalloc(sizeof(process_t));
 
   if (!process) {
     log_error("Failed to allocate memory for process: %s", name);
@@ -486,16 +486,16 @@ process_t* uprocess_init(const char* name, process_t* parent_process) {
   process->mmap_vma = NULL;
   process->active_threads = 0;
 
-  void* file_descriptor = kmalloc(sizeof(void*) * MAX_SYSTEM_OPEN_FILES);
+  void *file_descriptor = kmalloc(sizeof(void *) * MAX_SYSTEM_OPEN_FILES);
 
   if (!file_descriptor) {
     kfree(process);
     return NULL;
   }
 
-  memset(file_descriptor, 0, sizeof(void*) * MAX_SYSTEM_OPEN_FILES);
+  memset(file_descriptor, 0, sizeof(void *) * MAX_SYSTEM_OPEN_FILES);
 
-  process->open_files = (struct file**)file_descriptor;
+  process->open_files = (struct file **)file_descriptor;
 
   for (int i = 0; i < MAX_SYSTEM_OPEN_FILES; i++) {
     if (!parent_process->open_files[i]) {
@@ -506,14 +506,15 @@ process_t* uprocess_init(const char* name, process_t* parent_process) {
     fs_inc_file_refcount(process->open_files[i], 1);
   }
 
-  spinlock_init(&process->lock);
-
   process->pid = scheduler_get_next_pid();
+
+  spinlock_init(&process->lock);
+  process_add_child(parent_process, process);
   return process;
 }
 
-int load_user_process(process_t** process, const char* elf_path, void* arg) {
-  void* entry_point;
+int load_user_process(process_t **process, const char *elf_path, void *arg) {
+  void *entry_point;
   process_t temp_process = {0};
 
   int result = load_elf_file(&temp_process, elf_path, &entry_point);
@@ -525,8 +526,8 @@ int load_user_process(process_t** process, const char* elf_path, void* arg) {
 
   vma_add_nullspace(&temp_process, 0x0, (uintptr_t)mm_get_user_virtual_base());
 
-  process_t* current_process = scheduler_get_current_process();
-  process_t* new_process = uprocess_init("user-demo", current_process);
+  process_t *current_process = scheduler_get_current_process();
+  process_t *new_process = uprocess_init("user-demo", current_process);
 
   if (!new_process) {
     vma_free(&temp_process);
@@ -537,8 +538,8 @@ int load_user_process(process_t** process, const char* elf_path, void* arg) {
   new_process->vma_head = temp_process.vma_head;
   new_process->vma_tail = temp_process.vma_tail;
 
-  void (*user_main)(void*) = (void (*)(void*))entry_point;
-  void* root_table = phys_to_virt((void*)new_process->page_table);
+  void (*user_main)(void *) = (void (*)(void *))entry_point;
+  void *root_table = phys_to_virt((void *)new_process->page_table);
 
   // Allocate stack for the thread
   mm_result_t mm_result;
@@ -550,8 +551,8 @@ int load_user_process(process_t** process, const char* elf_path, void* arg) {
     return -1;
   }
 
-  thread_t* main_thread =
-      pthread_init("main", (void*)stack_base, user_main, arg);
+  thread_t *main_thread =
+      pthread_init("main", (void *)stack_base, user_main, arg);
 
   if (!main_thread) {
     vma_free(new_process);
@@ -570,7 +571,7 @@ int load_user_process(process_t** process, const char* elf_path, void* arg) {
   uintptr_t heap_start = new_process->vma_tail->vm_end;
 
   heap_start = page_align_up(heap_start, page_size);
-  heap_start += page_size;  // Skip the guard page
+  heap_start += page_size; // Skip the guard page
 
   vma_t vma = {
       .vm_start = heap_start,
@@ -581,7 +582,7 @@ int load_user_process(process_t** process, const char* elf_path, void* arg) {
       .file_size = 0,
   };
 
-  vma_t* heap_vma = vma_add(new_process, &vma);
+  vma_t *heap_vma = vma_add(new_process, &vma);
 
   if (!heap_vma) {
     vma_free(new_process);
@@ -593,16 +594,16 @@ int load_user_process(process_t** process, const char* elf_path, void* arg) {
 
   uintptr_t mmap_start = mm_get_user_mmap_base();
   mmap_start = page_align_down(mmap_start, page_size);
-  mmap_start -= page_size;  // Skip the guard page
+  mmap_start -= page_size; // Skip the guard page
 
   vma.vm_start = mmap_start;
   vma.vm_end = mmap_start + page_size;
-  vma.flags = VMA_GUARD;  // No specific flags for mmap
+  vma.flags = VMA_GUARD; // No specific flags for mmap
   vma.file = NULL;
   vma.file_offset = 0;
   vma.file_size = 0;
 
-  vma_t* mmap_vma = vma_add(new_process, &vma);
+  vma_t *mmap_vma = vma_add(new_process, &vma);
 
   if (!mmap_vma) {
     vma_free(new_process);
@@ -647,7 +648,7 @@ int load_user_process(process_t** process, const char* elf_path, void* arg) {
   return 0;
 }
 
-void send_signal(thread_t* target, int signal_num) {
+void send_signal(thread_t *target, int signal_num) {
   if (signal_num < 1 || signal_num > 31) {
     return;
   }
@@ -666,8 +667,553 @@ void send_signal(thread_t* target, int signal_num) {
   spinlock_release(&target->lock, flags);
 }
 
-void sys_fork(syscall_frame_t* frame) {
-  // Implementation for the fork system call
-  log_info("Fork system call invoked");
+void clone_page_table(process_t *parent, process_t *child) {
+  void *parent_root_table = phys_to_virt((void *)parent->page_table);
+  void *child_root_table = phys_to_virt((void *)child->page_table);
+
+  for (vma_t *current_vma = parent->vma_head; current_vma != NULL;
+       current_vma = current_vma->next) {
+    uintptr_t start = current_vma->vm_start;
+    uintptr_t end = current_vma->vm_end;
+    const size_t page_size = mm_get_page_size();
+
+    if (current_vma->flags & VMA_GUARD || current_vma->flags == 0) {
+      continue;
+    }
+
+    for (uintptr_t addr = start; addr < end; addr += page_size) {
+      uintptr_t phys_addr = 0;
+      mm_result_t result =
+          get_mapping(parent_root_table, (void *)addr, &phys_addr);
+
+      if (result != MM_SUCCESS || phys_addr == 0) {
+        continue;
+      }
+
+      mm_flags_t flags = vma_get_flags(current_vma->flags) | MM_FLAG_USER;
+
+      if (current_vma->flags & VMA_WRITE) {
+        flags |= MM_FLAG_COW;
+        flags &= ~MM_FLAG_WRITABLE;
+      }
+
+      result = change_page_flags(parent_root_table, (void *)addr, flags);
+
+      if (result != MM_SUCCESS) {
+        continue;
+      }
+
+      result =
+          map_page(child_root_table, (void *)addr, (void *)phys_addr, flags);
+
+      if (result != MM_SUCCESS) {
+        continue;
+      }
+
+      pmm_increment_page_refcount(&mm_state.pmm_state, (void *)phys_addr);
+    }
+  }
+}
+
+thread_t *clone_thread(thread_t *parent_thread, syscall_frame_t *sys_frame) {
+  const char *name = parent_thread->name;
+  const uintptr_t user_stack_base = parent_thread->user_stack_base;
+  void (*fake_entry_point)(void *) = (void (*)(void *))0x01;
+
+  thread_t *child_thread =
+      pthread_init(name, (void *)user_stack_base, fake_entry_point, NULL);
+
+  if (!child_thread) {
+    return NULL;
+  }
+
+  cpu_core_t *core = get_current_cpu();
+
+  child_thread->user_stack_base = parent_thread->user_stack_base;
+  child_thread->user_stack_ptr = core->user_sp;
+  child_thread->signal_mask = parent_thread->signal_mask;
+  child_thread->pending_signals = parent_thread->pending_signals;
+
+  // Copy the register state from the parent thread to the child thread
+  struct scheduler_frame_s *frame = (void *)child_thread->kernel_stack_ptr;
+
+  // Copy general-purpose registers
+  memcpy(&frame->regs, &sys_frame, sizeof(syscall_frame_t));
+
+  frame->rip = sys_frame->rcx;
+  frame->rsp = core->user_sp;
+  frame->rflags = sys_frame->r11;
+  frame->regs.rax = 0; // Child process returns 0 from fork
+
+  return child_thread;
+}
+
+void sys_fork(syscall_frame_t *frame) {
+  process_t *parent_process = scheduler_get_current_process();
+  process_t *child_process = uprocess_init("clone", parent_process);
+
+  if (!child_process) {
+    frame->syscall_num = -1;
+    return;
+  }
+
+  // Copy the VMA list from the parent process to the child process
+  vma_t *current_vma = parent_process->vma_head;
+
+  while (current_vma) {
+    vma_t new_vma = *current_vma;
+    vma_t *child_vma = vma_add(child_process, &new_vma);
+
+    if (!child_vma) {
+      vma_free(child_process);
+      frame->syscall_num = -1;
+      return;
+    }
+
+    if (current_vma == parent_process->heap_vma) {
+      child_process->heap_vma = child_vma;
+    } else if (current_vma == parent_process->mmap_vma) {
+      child_process->mmap_vma = child_vma;
+    }
+
+    current_vma = current_vma->next;
+  }
+
+  child_process->brk = parent_process->brk;
+  child_process->active_threads = child_process->active_threads;
+
+  mm_result_t result = mm_create_page_table(&child_process->page_table);
+
+  if (result != MM_SUCCESS) {
+    vma_free(child_process);
+    frame->syscall_num = -1;
+    return;
+  }
+
+  clone_page_table(parent_process, child_process);
+  thread_t *child_thread =
+      clone_thread(parent_process->thread_list_head, frame);
+
+  if (!child_thread) {
+    vma_free(child_process);
+    frame->syscall_num = -1;
+    return;
+  }
+
+  scheduler_add_process(child_process);
+  scheduler_add_thread(child_process, child_thread);
+  scheduler_queue_push(&scheduler_state.ready_queue, child_thread, TASK_READY);
+
+  frame->syscall_num = (int)child_process->pid;
+}
+
+void sys_waitpid(syscall_frame_t *frame) {
+  size_t requested_pid = frame->arg1;
+  int *status = (int *)frame->arg2;
+  int options = frame->arg3;
+
+  thread_t *current_thread = scheduler_get_current_thread();
+  process_t *current_process = current_thread->parent_process;
+
+  // if (requested_pid == -1){
+  // }
+
+  process_t *child_process =
+      process_get_child_by_pid(current_process, requested_pid);
+
+  if (!child_process) {
+    frame->syscall_num = -1; // Child process not found
+    return;
+  }
+
+  if (options) {
+    frame->syscall_num = 0;
+    return;
+  }
+
+  scheduler_queue_push(&child_process->wait_queue, current_thread,
+                       TASK_BLOCKED);
+
+  scheduler_yield();
+
+  const int exit_code = child_process->exit_code;
+  const int child_pid = child_process->pid;
+
+  cleaner_add_process(child_process);
+
+  if (status) {
+    mm_result_t result = mm_verify_process_addr(status);
+
+    if (result != MM_SUCCESS) {
+      frame->syscall_num = -1;
+      return;
+    }
+
+    *status = exit_code;
+  }
+
+  frame->syscall_num = child_pid;
+}
+
+static char *push_string(uint64_t *rsp, const char *str) {
+  size_t len = strlen(str) + 1; // Include null terminator
+  *rsp -= len;
+
+  // Copy the string to the user stack
+  memcpy((void *)*rsp, str, len);
+
+  return (char *)*rsp;
+}
+
+static uint64_t setup_user_stack(uint64_t user_stack_base,
+                                 char *const user_argv[],
+                                 char *const user_envp[]) {
+  uint64_t rsp = user_stack_base;
+
+  // Count arguments and environment variables
+  int argc = 0, envc = 0;
+  while (user_argv[argc])
+    argc++;
+  while (user_envp[envc])
+    envc++;
+
+  // Arrays to hold the new virtual addresses of the strings
+  uint64_t argv_ptrs[argc];
+  uint64_t envp_ptrs[envc];
+
+  // Push all strings onto the stack (from highest address down)
+  for (int i = envc - 1; i >= 0; i--) {
+    envp_ptrs[i] = (uint64_t)push_string(&rsp, user_envp[i]);
+  }
+
+  for (int i = argc - 1; i >= 0; i--) {
+    argv_ptrs[i] = (uint64_t)push_string(&rsp, user_argv[i]);
+  }
+
+  // Align the stack pointer down to a 16-byte boundary
+  // The System V ABI requires RSP to be 16-byte aligned before calling main
+  rsp &= ~0xF;
+
+  // Calculate how much space we need for the arrays
+  // argc (1) + argv ptrs (argc) + NULL (1) + envp ptrs (envc) + NULL (1) + auxv
+  // (3)
+  size_t pointer_array_size =
+      (1 + argc + 1 + envc + 1 + (3 * 2)) * sizeof(uint64_t);
+
+  // Move RSP down to allocate space for all pointers
+  rsp -= pointer_array_size;
+
+  // Fill the arrays from bottom to top using a temporary pointer
+  uint64_t *stack_ptr = (uint64_t *)rsp;
+
+  // Push argc
+  *stack_ptr++ = argc;
+
+  // Push argv pointers
+  for (int i = 0; i < argc; i++) {
+    *stack_ptr++ = argv_ptrs[i];
+  }
+  *stack_ptr++ = 0; // NULL terminator for argv
+
+  // Push envp pointers
+  for (int i = 0; i < envc; i++) {
+    *stack_ptr++ = envp_ptrs[i];
+  }
+  *stack_ptr++ = 0; // NULL terminator for envp
+
+  // Push Auxiliary Vector
+  *stack_ptr++ = 6; // AT_PAGESZ
+  *stack_ptr++ = mm_get_page_size();
+
+  *stack_ptr++ = 25;      // AT_RANDOM
+  *stack_ptr++ = rsp + 8; // Point to some semi-random data on stack for now
+
+  *stack_ptr++ = 0; // AT_NULL
+  *stack_ptr++ = 0;
+
+  return rsp;
+}
+
+void replace_current_process(process_t *new_process, void *entry_point,
+                             char *const user_argv[], char *const user_envp[]) {
+  process_t *target_process = scheduler_get_current_process();
+
+  unsigned long rflags;
+  spinlock_acquire(&target_process->lock, &rflags);
+
+  thread_t *parent_thread = scheduler_get_current_thread();
+  const size_t page_size = mm_get_page_size();
+
+  // free threads of the target process, and their kernel stacks
+  thread_t *current_thread = target_process->thread_list_head;
+
+  while (current_thread) {
+    if (current_thread == parent_thread) {
+      current_thread = current_thread->next;
+      continue;
+    }
+
+    uintptr_t kernel_stack_base = current_thread->kernel_stack_base;
+
+    if (kernel_stack_base) {
+      mm_free_kstack(kernel_stack_base);
+    }
+
+    thread_t *temp_thread = current_thread;
+    current_thread = current_thread->next;
+
+    kfree(temp_thread);
+  }
+
+  // copy user_args and user_envp, before freeing the vma structures
+  vma_t *stack_vma = target_process->vma_tail;
+
+  vma_detach(target_process, stack_vma);
+
+  const size_t vma_size = stack_vma->vm_end - stack_vma->vm_start;
+  const size_t num_pages = page_align_up(vma_size, page_size) / page_size;
+  void *root_table = phys_to_virt((void *)target_process->page_table);
+
+  for (size_t i = 0; i < num_pages; i++) {
+    uintptr_t virt_addr = stack_vma->vm_start + i * page_size;
+    uintptr_t phys_addr = 0;
+
+    mm_result_t result = unmap_page(root_table, (void *)virt_addr, &phys_addr);
+
+    if (result == MM_SUCCESS && phys_addr != 0) {
+      pmm_free(&mm_state.pmm_state, (void *)phys_addr);
+    }
+  }
+
+  void *phys_addr = pmm_alloc(&mm_state.pmm_state, page_size);
+
+  if (!phys_addr) {
+    spinlock_release(&target_process->lock, rflags);
+    return;
+  }
+
+  // map single page of user stack for the current thread
+  uintptr_t user_stack_base = stack_vma->vm_end - page_size;
+  mm_flags_t flags = vma_get_flags(stack_vma->flags) | MM_FLAG_USER;
+  mm_result_t result =
+      map_page(root_table, (void *)user_stack_base, phys_addr, flags);
+
+  if (result != MM_SUCCESS) {
+    pmm_free(&mm_state.pmm_state, phys_addr);
+    spinlock_release(&target_process->lock, rflags);
+    return;
+  }
+
+  uintptr_t user_stack_ptr =
+      setup_user_stack(stack_vma->vm_end, user_argv, user_envp);
+
+  // Free the vma structures
+  // user stack free with vma structure
+  struct vma_s *current_vma = target_process->vma_head;
+
+  while (current_vma) {
+    if (current_vma->flags & VMA_NONE) {
+      struct vma_s *temp_vma = current_vma;
+      current_vma = current_vma->next;
+
+      kfree(temp_vma);
+      continue;
+    }
+
+    const size_t vma_size = current_vma->vm_end - current_vma->vm_start;
+    const size_t num_pages = page_align_up(vma_size, page_size) / page_size;
+
+    for (size_t i = 0; i < num_pages; i++) {
+      uintptr_t virt_addr = current_vma->vm_start + i * page_size;
+      uintptr_t phys_addr = 0;
+
+      mm_result_t result =
+          unmap_page(root_table, (void *)virt_addr, &phys_addr);
+
+      if (result == MM_SUCCESS && phys_addr != 0) {
+        pmm_free(&mm_state.pmm_state, (void *)phys_addr);
+        continue;
+      }
+    }
+
+    if (current_vma->file != NULL) {
+      fs_close(current_vma->file);
+    }
+
+    struct vma_s *temp_vma = current_vma;
+    current_vma = current_vma->next;
+
+    // Free the vma structure
+    kfree(temp_vma);
+  }
+
+  // copy vma from new_process to target_process
+  target_process->vma_head = new_process->vma_head;
+  target_process->vma_tail = new_process->vma_tail;
+  target_process->heap_vma = new_process->heap_vma;
+  target_process->mmap_vma = new_process->mmap_vma;
+
+  if (!vma_add(target_process, stack_vma)) {
+    spinlock_release(&target_process->lock, rflags);
+    return;
+  }
+
+  target_process->brk = new_process->brk;
+  target_process->active_threads = 1;
+
+  parent_thread->pending_signals = 0;
+  parent_thread->signal_mask = 0;
+  parent_thread->user_stack_base = stack_vma->vm_end;
+  parent_thread->user_stack_ptr = user_stack_ptr;
+
+  uintptr_t addr = parent_thread->kernel_stack_base;
+  size_t frame_size = sizeof(struct scheduler_frame_s);
+  parent_thread->kernel_stack_ptr = addr - frame_size;
+  struct scheduler_frame_s *frame = (void *)parent_thread->kernel_stack_ptr;
+
+  memset(frame, 0, sizeof(struct scheduler_frame_s));
+
+  frame->rip = (uint64_t)entry_point;
+  frame->rsp = (uint64_t)parent_thread->user_stack_ptr;
+  frame->rflags = RFLAGS_IF;
+  frame->cs = USER_CS_REGS;
+  frame->ss = USER_SS_REGS;
+
+  uintptr_t kernel_stack_ptr = parent_thread->kernel_stack_ptr;
+  uintptr_t kernel_stack_base = parent_thread->kernel_stack_base;
+
+  spinlock_release(&target_process->lock, rflags);
+  switch_context(target_process->page_table, kernel_stack_ptr,
+                 kernel_stack_base);
+}
+
+void sys_execve(syscall_frame_t *frame) {
+  const char *path = (const char *)frame->arg1;
+  char *const *argv = (char *const *)frame->arg2;
+  char *const *envp = (char *const *)frame->arg3;
+
+  void *entry_point;
+  process_t temp_process = {0};
+
+  int result = load_elf_file(&temp_process, path, &entry_point);
+
+  if (result != 0) {
+    vma_free(&temp_process);
+    frame->syscall_num = -1;
+    return;
+  }
+
+  vma_add_nullspace(&temp_process, 0x0, mm_get_user_virtual_base());
+
+  // vma_heap and vma_mmap initialization
+  const size_t page_size = mm_get_page_size();
+  uintptr_t heap_start = temp_process.vma_tail->vm_end;
+
+  heap_start = page_align_up(heap_start, page_size);
+  heap_start += page_size; // Skip the guard page
+
+  vma_t vma = {
+      .vm_start = heap_start,
+      .vm_end = heap_start,
+      .flags = VMA_HEAP | VMA_ANONYMOUS | VMA_READ | VMA_WRITE | VMA_EXEC,
+      .file = NULL,
+      .file_offset = 0,
+      .file_size = 0,
+  };
+
+  vma_t *heap_vma = vma_add(&temp_process, &vma);
+
+  if (!heap_vma) {
+    vma_free(&temp_process);
+    frame->syscall_num = -1;
+    log_error("Failed to add heap VMA for process: %s", path);
+    return;
+  }
+
+  temp_process.brk = heap_vma->vm_start;
+  temp_process.heap_vma = heap_vma;
+
+  uintptr_t mmap_start = mm_get_user_mmap_base();
+  mmap_start = page_align_down(mmap_start, page_size);
+  mmap_start -= page_size; // Skip the guard page
+
+  vma.vm_start = mmap_start;
+  vma.vm_end = mmap_start + page_size;
+  vma.flags = VMA_GUARD; // No specific flags for mmap
+  vma.file = NULL;
+  vma.file_offset = 0;
+  vma.file_size = 0;
+
+  vma_t *mmap_vma = vma_add(&temp_process, &vma);
+
+  if (!mmap_vma) {
+    vma_free(&temp_process);
+    frame->syscall_num = -1;
+    log_error("Failed to add mmap VMA for process: %s", path);
+    return;
+  }
+
+  temp_process.mmap_vma = mmap_vma;
+
+  // user stack initialization not needed,
+  // it use the current thread's user stack
+  replace_current_process(&temp_process, entry_point, argv, envp);
   frame->syscall_num = -1;
+  return;
+}
+
+void process_add_child(process_t *parent, process_t *child) {
+  unsigned long flags;
+  spinlock_acquire(&parent->lock, &flags);
+
+  child->parent = parent;
+  child->sibling_prev = NULL;
+  child->sibling_next = parent->children;
+
+  if (parent->children) {
+    parent->children->sibling_prev = child;
+  }
+
+  parent->children = child;
+
+  spinlock_release(&parent->lock, flags);
+}
+
+void process_remove_child(process_t *parent, process_t *child) {
+  unsigned long flags;
+  spinlock_acquire(&parent->lock, &flags);
+
+  if (child->sibling_prev) {
+    child->sibling_prev->sibling_next = child->sibling_next;
+  } else {
+    parent->children = child->sibling_next;
+  }
+
+  if (child->sibling_next) {
+    child->sibling_next->sibling_prev = child->sibling_prev;
+  }
+
+  child->parent = NULL;
+  child->sibling_prev = NULL;
+  child->sibling_next = NULL;
+
+  spinlock_release(&parent->lock, flags);
+}
+
+process_t *process_get_child_by_pid(process_t *parent, size_t pid) {
+  unsigned long flags;
+  spinlock_acquire(&parent->lock, &flags);
+
+  process_t *current_child = parent->children;
+
+  while (current_child) {
+    if (current_child->pid == pid) {
+      spinlock_release(&parent->lock, flags);
+      return current_child;
+    }
+    current_child = current_child->sibling_next;
+  }
+
+  spinlock_release(&parent->lock, flags);
+  return NULL; // Child with the specified PID not found
 }

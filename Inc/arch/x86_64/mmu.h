@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 #define PAGE_MASK (~0xfffULL)
-#define PHYS_MASK (0x000FFFFFFFFFF000ULL)
+#define X86_64_PHYS_MASK (0x000FFFFFFFFFF000ULL)
 
 #define PML4_INDEX(a) (((a) >> 39) & 0x1FF)
 #define PDPT_INDEX(a) (((a) >> 30) & 0x1FF)
@@ -45,6 +45,8 @@
 #define MMU_PF_PLV_MASK (1 << 0)
 #define MMU_PF_WA_MASK (1 << 1)
 #define MMU_PF_UM_MASK (1 << 2)
+#define MMU_PF_RSVD_MASK (1 << 3)
+#define MMU_PF_IFETCH_MASK (1 << 4)
 
 static inline uintptr_t get_page_table_addr(void) {
   uintptr_t page_table_addr;

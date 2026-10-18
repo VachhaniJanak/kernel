@@ -26,6 +26,6 @@ void sys_pthread_create(syscall_frame_t* frame);
 
 void sys_pthread_join(syscall_frame_t* frame);
 
-void thread_relase_locks(thread_t* thread);
+void thread_release_locks(thread_t* thread);
 
 void thread_exit(int exit_code);

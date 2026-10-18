@@ -233,3 +233,21 @@ bool vma_find_gap(vma_t* vma_head, bool reverse, uintptr_t size,
 
   return false;
 }
+
+void vma_detach(process_t *process, vma_t *vma) {
+
+  if (vma->prev){
+    vma->prev->next = vma->next;
+  } else {
+    process->vma_head = vma->next;
+  }
+
+  if (vma->next) {
+    vma->next->prev = vma->prev;
+  } else {
+    process->vma_tail = vma->prev;
+  }
+
+  vma->prev = NULL;
+  vma->next = NULL;
+}

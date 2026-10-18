@@ -30,7 +30,7 @@ struct scheduler_state_s scheduler_state = {0};
 
 void scheduler_yield(void) { __asm__ volatile("int $32"); }
 
-void scheduler_queue_push(thread_queue_t* queue, thread_t* thread,
+void scheduler_queue_push(thread_queue_t *queue, thread_t *thread,
                           task_status_t status) {
   if (!queue || !thread) {
     return;
@@ -42,6 +42,7 @@ void scheduler_queue_push(thread_queue_t* queue, thread_t* thread,
   thread->queue_next = NULL;
   thread->queue_prev = queue->tail;
   thread->status = status;
+  thread->wait_queue = queue;
 
   if (queue->tail) {
     queue->tail->queue_next = thread;
@@ -55,7 +56,7 @@ void scheduler_queue_push(thread_queue_t* queue, thread_t* thread,
   spinlock_release(&queue->lock, flags);
 }
 
-thread_t* scheduler_queue_pop(thread_queue_t* queue, task_status_t status) {
+thread_t *scheduler_queue_pop(thread_queue_t *queue, task_status_t status) {
   if (!queue) {
     return NULL;
   }
@@ -68,7 +69,7 @@ thread_t* scheduler_queue_pop(thread_queue_t* queue, task_status_t status) {
     return NULL;
   }
 
-  thread_t* thread = queue->head;
+  thread_t *thread = queue->head;
   queue->head = thread->queue_next;
 
   if (queue->head) {
@@ -87,7 +88,7 @@ thread_t* scheduler_queue_pop(thread_queue_t* queue, task_status_t status) {
   return thread;
 }
 
-void scheduler_add_process(process_t* process) {
+void scheduler_add_process(process_t *process) {
   if (!process) {
     return;
   }
@@ -110,7 +111,7 @@ void scheduler_add_process(process_t* process) {
   spinlock_release(&scheduler_state.lock, flags);
 }
 
-void scheduler_remove_process(process_t* process) {
+void scheduler_remove_process(process_t *process) {
   if (!process) {
     return;
   }
@@ -134,7 +135,7 @@ void scheduler_remove_process(process_t* process) {
   spinlock_release(&scheduler_state.lock, flags);
 }
 
-process_t* scheduler_get_process_by_pid(size_t pid) {
+process_t *scheduler_get_process_by_pid(size_t pid) {
   if (!scheduler_state.process_list_head) {
     return NULL;
   }
@@ -143,7 +144,7 @@ process_t* scheduler_get_process_by_pid(size_t pid) {
     return scheduler_state.process_list_tail;
   }
 
-  process_t* current = scheduler_state.process_list_head;
+  process_t *current = scheduler_state.process_list_head;
 
   while (current) {
     if (current->pid == pid) {
@@ -155,7 +156,7 @@ process_t* scheduler_get_process_by_pid(size_t pid) {
   return NULL;
 }
 
-void scheduler_add_thread(process_t* process, thread_t* thread) {
+void scheduler_add_thread(process_t *process, thread_t *thread) {
   if (!process || !thread) {
     return;
   }
@@ -172,7 +173,7 @@ void scheduler_add_thread(process_t* process, thread_t* thread) {
   spinlock_release(&process->lock, flags);
 }
 
-thread_t* scheduler_get_thread(process_t* process, size_t tid) {
+thread_t *scheduler_get_thread(process_t *process, size_t tid) {
   if (!process) {
     return NULL;
   }
@@ -180,7 +181,7 @@ thread_t* scheduler_get_thread(process_t* process, size_t tid) {
   unsigned long flags;
   spinlock_acquire(&process->lock, &flags);
 
-  thread_t* current = process->thread_list_head;
+  thread_t *current = process->thread_list_head;
 
   while (current) {
     if (current->tid == tid) {
@@ -194,7 +195,7 @@ thread_t* scheduler_get_thread(process_t* process, size_t tid) {
   return NULL;
 }
 
-void scheduler_sleep_queue_push(thread_t* thread) {
+void scheduler_sleep_queue_push(thread_t *thread) {
   if (!thread) {
     return;
   }
@@ -205,7 +206,7 @@ void scheduler_sleep_queue_push(thread_t* thread) {
   spinlock_acquire(&scheduler_state.sleeping_queue.lock, &flags);
 
   // add in sorted order based on wakeup_time
-  thread_t* current = scheduler_state.sleeping_queue.head;
+  thread_t *current = scheduler_state.sleeping_queue.head;
 
   while (current && current->wakeup_time <= thread->wakeup_time) {
     current = current->queue_next;
@@ -236,26 +237,27 @@ void scheduler_sleep_queue_push(thread_t* thread) {
     scheduler_state.sleeping_queue.tail = thread;
   }
 
+  thread->wait_queue = &scheduler_state.sleeping_queue;
   scheduler_state.sleeping_queue.count++;
 
   spinlock_release(&scheduler_state.sleeping_queue.lock, flags);
 }
 
-static inline void save_context(cpu_core_t* core,
-                                struct scheduler_frame_s* frame) {
-  thread_t* current_thread = core->active_thread;
+static inline void save_context(cpu_core_t *core,
+                                struct scheduler_frame_s *frame) {
+  thread_t *current_thread = core->active_thread;
   current_thread->kernel_stack_ptr = (uintptr_t)frame;
   current_thread->user_stack_ptr = core->user_sp;
 }
 
-static inline void restore_context(cpu_core_t* core, thread_t* new_thread) {
+static inline void restore_context(cpu_core_t *core, thread_t *new_thread) {
   core->active_thread = new_thread;
   core->kernel_sp = (uintptr_t)new_thread->kernel_stack_base;
   core->user_sp = (uintptr_t)new_thread->user_stack_ptr;
 }
 
 void check_pending_signals(void) {
-  thread_t* current = scheduler_get_current_thread();
+  thread_t *current = scheduler_get_current_thread();
 
   if (!current) {
     return;
@@ -278,14 +280,14 @@ void check_pending_signals(void) {
   }
 }
 
-static inline void scheduler(struct scheduler_frame_s* frame) {
-  cpu_core_t* core = get_current_cpu();
-  thread_t* prev_thread = core->active_thread;
-  thread_queue_t* ready_queue = &scheduler_state.ready_queue;
-  thread_t* next_thread = scheduler_queue_pop(ready_queue, TASK_RUNNING);
+static inline void scheduler(struct scheduler_frame_s *frame) {
+  cpu_core_t *core = get_current_cpu();
+  thread_t *prev_thread = core->active_thread;
+  thread_queue_t *ready_queue = &scheduler_state.ready_queue;
+  thread_t *next_thread = scheduler_queue_pop(ready_queue, TASK_RUNNING);
 
   if (!next_thread) {
-    thread_t* idle_thread = core->idle_thread;
+    thread_t *idle_thread = core->idle_thread;
 
     if (prev_thread->status == TASK_RUNNING && prev_thread != idle_thread) {
       next_thread = prev_thread;
@@ -323,23 +325,23 @@ static inline void check_sleeping_threads(void) {
   while (scheduler_state.sleeping_queue.head &&
          scheduler_state.sleeping_queue.head->wakeup_time <=
              timer_get_ticks()) {
-    thread_queue_t* sleeping_queue = &scheduler_state.sleeping_queue;
-    thread_queue_t* ready_queue = &scheduler_state.ready_queue;
+    thread_queue_t *sleeping_queue = &scheduler_state.sleeping_queue;
+    thread_queue_t *ready_queue = &scheduler_state.ready_queue;
 
     // pop the thread from the sleeping queue
-    thread_t* thread = scheduler_queue_pop(sleeping_queue, TASK_READY);
+    thread_t *thread = scheduler_queue_pop(sleeping_queue, TASK_READY);
 
     // push the thread to the ready queue
     scheduler_queue_push(ready_queue, thread, TASK_READY);
   }
 }
 
-void timer_irq_isr_handler(struct scheduler_frame_s* frame) {
+void timer_irq_isr_handler(struct scheduler_frame_s *frame) {
   check_sleeping_threads();
   scheduler(frame);
 }
 
-static void idle(void* arg) {
+static void idle(void *arg) {
   UNUSED(arg);
 
   while (true) {
@@ -352,7 +354,7 @@ static void idle(void* arg) {
   }
 }
 
-void test_thread1(void* arg) {
+void test_thread1(void *arg) {
   UNUSED(arg);
 
   static size_t counter = 0;
@@ -363,7 +365,7 @@ void test_thread1(void* arg) {
   }
 }
 
-void test_thread2(void* arg) {
+void test_thread2(void *arg) {
   UNUSED(arg);
 
   static size_t counter = 0;
@@ -374,26 +376,12 @@ void test_thread2(void* arg) {
   }
 }
 
-static void foo(void) {
-  log_print("Loading user process demo.elf...\n");
-  int ret;
-  ret = load_user_process(NULL, "/userprograms/demo.elf", NULL);
-  
+static void load_shell(void) {
+  int ret = load_user_process(NULL, "/userprograms/demo.elf", NULL);
+
   if (ret != 0) {
     log_error("Failed to load user process: %d", ret);
-    return;
   }
-  
-  log_print("Loading user process demo1.elf...\n");
-
-  // ret = load_user_process(NULL, "/userprograms/demo1.elf", NULL);
-
-  // if (ret != 0) {
-  //   log_error("Failed to load user 1 process: %d", ret);
-  //   return;
-  // }
-
-  return;
 }
 
 void scheduler_init(void) {
@@ -401,15 +389,15 @@ void scheduler_init(void) {
 
   // init core state for each CPU core
   size_t cpu_id = apic_get_id();
-  cpu_core_t* core_state = &scheduler_state.cores[cpu_id];
+  cpu_core_t *core_state = &scheduler_state.cores[cpu_id];
 
   core_state->cpu_id = cpu_id;
 
   syscall_init(core_state);
   spinlock_init(&scheduler_state.lock);
 
-  process_t* kernel_process = kprocess_init("kernel");
-  thread_t* idle_thread = kthread_init("idle", 0, idle, NULL);
+  process_t *kernel_process = kprocess_init("kernel");
+  thread_t *idle_thread = kthread_init("idle", 0, idle, NULL);
 
   scheduler_add_process(kernel_process);
   scheduler_add_thread(kernel_process, idle_thread);
@@ -420,15 +408,15 @@ void scheduler_init(void) {
   scheduler_state.kernel_process = kernel_process;
 
   // Create test threads
-  // thread_t* thread1 = kthread_init("test_thread1", 0, test_thread1, NULL);
+  thread_t *thread1 = kthread_init("test_thread1", 0, test_thread1, NULL);
   // thread_t* thread2 = kthread_init("test_thread2", 0, test_thread2, NULL);
 
-  // scheduler_add_thread(kernel_process, thread1);
+  scheduler_add_thread(kernel_process, thread1);
   // scheduler_add_thread(kernel_process, thread2);
 
   // scheduler_queue_push(&scheduler_state.ready_queue, idle_thread,
   // TASK_READY);
-  // scheduler_queue_push(&scheduler_state.ready_queue, thread1, TASK_READY);
+  scheduler_queue_push(&scheduler_state.ready_queue, thread1, TASK_READY);
   // scheduler_queue_push(&scheduler_state.ready_queue, thread2, TASK_READY);
 
   log_info("idle thread parent process: %s, pid: %zu",
@@ -451,7 +439,7 @@ void scheduler_init(void) {
 
   tty_init();
   cleaner_init();
-  foo();
+  load_shell();
 
 #ifdef SCHEDULER_DEBUG
   log_info("Scheduler initialized");
@@ -466,7 +454,7 @@ void scheduler_init(void) {
   idle(NULL);
 }
 
-void scheduler_terminate_process(process_t* process) {
+void scheduler_terminate_process(process_t *process) {
   if (!process) {
     return;
   }
@@ -474,9 +462,10 @@ void scheduler_terminate_process(process_t* process) {
   unsigned long flags;
   spinlock_acquire(&process->lock, &flags);
 
-  thread_t* current_thread = process->thread_list_head;
+  thread_t *current_thread = process->thread_list_head;
 
   while (current_thread != NULL) {
+    thread_release_locks(current_thread);
     current_thread->status = TASK_DEAD;
     current_thread = current_thread->next;
   }
@@ -490,17 +479,17 @@ void scheduler_terminate_process(process_t* process) {
 }
 
 void scheduler_terminate_current_process(void) {
-  thread_t* current_thread = scheduler_get_current_thread();
+  thread_t *current_thread = scheduler_get_current_thread();
 
   if (!current_thread) {
     return;
   }
 
-  process_t* current_process = current_thread->parent_process;
+  process_t *current_process = current_thread->parent_process;
   scheduler_terminate_process(current_process);
 }
 
-void scheduler_queue_remove(thread_queue_t* queue, thread_t* thread) {
+void scheduler_queue_remove(thread_queue_t *queue, thread_t *thread) {
   if (!thread->queue_next && !thread->queue_prev && queue->head != thread) {
     return;
   }

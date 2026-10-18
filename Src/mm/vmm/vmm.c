@@ -53,6 +53,7 @@ mm_result_t map_page(void* root_table, void* virt_addr, void* phys_addr,
   uint64_t virt = (uint64_t)virt_addr;
   uint64_t phys = (uint64_t)phys_addr;
   uint64_t mmu_flags = mm_get_mmu_flags(mm_flags);
+  const uint64_t phys_mask = mm_get_phys_mask();
 
   // Validate alignment for huge pages
   if (mm_flags & MM_FLAG_1GB) {
@@ -88,7 +89,7 @@ mm_result_t map_page(void* root_table, void* virt_addr, void* phys_addr,
   }
 
   // Level 3 (PDPT)
-  uint64_t* pdpt = phys_to_virt((void*)(pml4[pml4_idx] & PHYS_MASK));
+  uint64_t* pdpt = phys_to_virt((void*)(pml4[pml4_idx] & phys_mask));
   uint16_t pdpt_idx = PDPT_INDEX(virt);
 
   // check if huge page is requested
@@ -103,7 +104,7 @@ mm_result_t map_page(void* root_table, void* virt_addr, void* phys_addr,
     }
 
     uint64_t t_flags = MMU_PRESENT | MMU_HUGE_PAGE | mmu_flags;
-    pdpt[pdpt_idx] = (phys & PHYS_MASK) | t_flags;
+    pdpt[pdpt_idx] = (phys & phys_mask) | t_flags;
     return MM_SUCCESS;
   }
 
@@ -131,7 +132,7 @@ mm_result_t map_page(void* root_table, void* virt_addr, void* phys_addr,
   }
 
   // Level 2 (PD)
-  uint64_t* pd = phys_to_virt((void*)(pdpt[pdpt_idx] & PHYS_MASK));
+  uint64_t* pd = phys_to_virt((void*)(pdpt[pdpt_idx] & phys_mask));
   uint16_t pd_idx = PD_INDEX(virt);
 
   if (mm_flags & MM_FLAG_2MB) {
@@ -145,7 +146,7 @@ mm_result_t map_page(void* root_table, void* virt_addr, void* phys_addr,
     }
 
     uint64_t t_flags = MMU_PRESENT | MMU_HUGE_PAGE | mmu_flags;
-    pd[pd_idx] = (phys & PHYS_MASK) | t_flags;
+    pd[pd_idx] = (phys & phys_mask) | t_flags;
     return MM_SUCCESS;
   }
 
@@ -172,7 +173,7 @@ mm_result_t map_page(void* root_table, void* virt_addr, void* phys_addr,
   }
 
   // Level 1 (PT)
-  uint64_t* pt = phys_to_virt((void*)(pd[pd_idx] & PHYS_MASK));
+  uint64_t* pt = phys_to_virt((void*)(pd[pd_idx] & phys_mask));
   uint16_t pt_idx = PT_INDEX(virt);
 
   // if the entry is already present, return the physical address
@@ -181,7 +182,7 @@ mm_result_t map_page(void* root_table, void* virt_addr, void* phys_addr,
   }
 
   uint64_t t_flags = MMU_PRESENT | mmu_flags;
-  pt[pt_idx] = (phys & PHYS_MASK) | t_flags;
+  pt[pt_idx] = (phys & phys_mask) | t_flags;
 
   return MM_SUCCESS;
 }
@@ -203,8 +204,10 @@ mm_result_t unmap_page(void* root_table, void* virt_addr,
     return MM_ERR_NOT_MAPPED;
   }
 
+  const uint64_t phys_mask = mm_get_phys_mask();
+
   // Level 3 (PDPT)
-  uint64_t* pdpt = phys_to_virt((void*)(pml4[pml4_idx] & PHYS_MASK));
+  uint64_t* pdpt = phys_to_virt((void*)(pml4[pml4_idx] & phys_mask));
   uint16_t pdpt_idx = PDPT_INDEX(virt);
 
   // check if the entry is present, if not return NULL
@@ -214,7 +217,7 @@ mm_result_t unmap_page(void* root_table, void* virt_addr,
 
   // check if the entry is a huge page
   if (pdpt[pdpt_idx] & MMU_HUGE_PAGE) {
-    *phys_addr = pdpt[pdpt_idx] & PHYS_MASK;
+    *phys_addr = pdpt[pdpt_idx] & phys_mask;
     pdpt[pdpt_idx] = 0;
     tlb_invalidate(virt_addr);
 
@@ -229,7 +232,7 @@ mm_result_t unmap_page(void* root_table, void* virt_addr,
   }
 
   // Level 2 (PD)
-  uint64_t* pd = phys_to_virt((void*)(pdpt[pdpt_idx] & PHYS_MASK));
+  uint64_t* pd = phys_to_virt((void*)(pdpt[pdpt_idx] & phys_mask));
   uint16_t pd_idx = PD_INDEX(virt);
 
   // check if the entry is present, if not return NULL
@@ -240,7 +243,7 @@ mm_result_t unmap_page(void* root_table, void* virt_addr,
   // check if the entry is a huge page if it is, unmap it and return the
   // physical address
   if (pd[pd_idx] & MMU_HUGE_PAGE) {
-    *phys_addr = pd[pd_idx] & PHYS_MASK;
+    *phys_addr = pd[pd_idx] & phys_mask;
     pd[pd_idx] = 0;
     tlb_invalidate(virt_addr);
 
@@ -262,7 +265,7 @@ mm_result_t unmap_page(void* root_table, void* virt_addr,
   }
 
   // Level 1 (PT)
-  uint64_t* pt = phys_to_virt((void*)(pd[pd_idx] & PHYS_MASK));
+  uint64_t* pt = phys_to_virt((void*)(pd[pd_idx] & phys_mask));
   uint16_t pt_idx = PT_INDEX(virt);
 
   // check if the entry is present, if not return NULL
@@ -270,7 +273,7 @@ mm_result_t unmap_page(void* root_table, void* virt_addr,
     return MM_ERR_NOT_MAPPED;
   }
 
-  *phys_addr = pt[pt_idx] & PHYS_MASK;
+  *phys_addr = pt[pt_idx] & phys_mask;
   pt[pt_idx] = 0;
   tlb_invalidate(virt_addr);
 
@@ -305,6 +308,7 @@ mm_result_t get_mapping(void* root_table, void* virt_addr,
 
   uint64_t* pml4 = (uint64_t*)root_table;
   uint16_t pml4_idx = PML4_INDEX((uint64_t)virt_addr);
+  const uint64_t phys_mask = mm_get_phys_mask();
 
   // check if the entry is present
   if (!(pml4[pml4_idx] & MMU_PRESENT)) {
@@ -312,7 +316,7 @@ mm_result_t get_mapping(void* root_table, void* virt_addr,
   }
 
   // Level 3 (PDPT)
-  uint64_t* pdpt = phys_to_virt((void*)(pml4[pml4_idx] & PHYS_MASK));
+  uint64_t* pdpt = phys_to_virt((void*)(pml4[pml4_idx] & phys_mask));
   uint16_t pdpt_idx = PDPT_INDEX((uint64_t)virt_addr);
 
   // check if the entry is present
@@ -324,13 +328,13 @@ mm_result_t get_mapping(void* root_table, void* virt_addr,
   // if it is, return the physical address
   if (pdpt[pdpt_idx] & MMU_HUGE_PAGE) {
     uint64_t page_offset = (uint64_t)virt_addr & (MM_SIZE_1GB - 1);
-    uint64_t phys_base = pdpt[pdpt_idx] & PHYS_MASK;
+    uint64_t phys_base = pdpt[pdpt_idx] & phys_mask;
     *phys_addr = (phys_base + page_offset);
     return MM_SUCCESS;
   }
 
   // Level 2 (PD)
-  uint64_t* pd = phys_to_virt((void*)(pdpt[pdpt_idx] & PHYS_MASK));
+  uint64_t* pd = phys_to_virt((void*)(pdpt[pdpt_idx] & phys_mask));
   uint16_t pd_idx = PD_INDEX((uint64_t)virt_addr);
 
   // check if the entry is present
@@ -342,13 +346,13 @@ mm_result_t get_mapping(void* root_table, void* virt_addr,
   // if it is, return the physical address
   if (pd[pd_idx] & MMU_HUGE_PAGE) {
     uint64_t page_offset = (uint64_t)virt_addr & (MM_SIZE_XMB(2) - 1);
-    uint64_t phys_base = pd[pd_idx] & PHYS_MASK;
+    uint64_t phys_base = pd[pd_idx] & phys_mask;
     *phys_addr = (phys_base + page_offset);
     return MM_SUCCESS;
   }
 
   // Level 1 (PT)
-  uint64_t* pt = phys_to_virt((void*)(pd[pd_idx] & PHYS_MASK));
+  uint64_t* pt = phys_to_virt((void*)(pd[pd_idx] & phys_mask));
   uint16_t pt_idx = PT_INDEX((uint64_t)virt_addr);
 
   // check if the entry is present
@@ -357,7 +361,7 @@ mm_result_t get_mapping(void* root_table, void* virt_addr,
   }
 
   uint64_t page_offset = (uint64_t)virt_addr & (MM_SIZE_XKB(4) - 1);
-  uint64_t phys_base = pt[pt_idx] & PHYS_MASK;
+  uint64_t phys_base = pt[pt_idx] & phys_mask;
   *phys_addr = (phys_base + page_offset);
   return MM_SUCCESS;
 }
@@ -384,8 +388,10 @@ mm_result_t change_page_flags(void* root_table, void* virt_addr,
     return MM_ERR_NOT_MAPPED;
   }
 
+  const uint64_t phys_mask = mm_get_phys_mask();
+
   // Level 3 (PDPT)
-  uint64_t* pdpt = phys_to_virt((void*)(pml4[pml4_idx] & PHYS_MASK));
+  uint64_t* pdpt = phys_to_virt((void*)(pml4[pml4_idx] & phys_mask));
   uint16_t pdpt_idx = PDPT_INDEX((uint64_t)virt_addr);
 
   // check if the entry is present
@@ -400,7 +406,7 @@ mm_result_t change_page_flags(void* root_table, void* virt_addr,
       return MM_ERR_INVALID_FLAGS;
     }
 
-    pdpt[pdpt_idx] = (pdpt[pdpt_idx] & PHYS_MASK);
+    pdpt[pdpt_idx] = (pdpt[pdpt_idx] & phys_mask);
     pdpt[pdpt_idx] |= (MMU_PRESENT | MMU_HUGE_PAGE | mmu_flags);
     tlb_invalidate(virt_addr);
 
@@ -412,7 +418,7 @@ mm_result_t change_page_flags(void* root_table, void* virt_addr,
   }
 
   // Level 2 (PD)
-  uint64_t* pd = phys_to_virt((void*)(pdpt[pdpt_idx] & PHYS_MASK));
+  uint64_t* pd = phys_to_virt((void*)(pdpt[pdpt_idx] & phys_mask));
   uint16_t pd_idx = PD_INDEX((uint64_t)virt_addr);
 
   // check if the entry is present
@@ -427,7 +433,7 @@ mm_result_t change_page_flags(void* root_table, void* virt_addr,
       return MM_ERR_INVALID_FLAGS;
     }
 
-    pd[pd_idx] = (pd[pd_idx] & PHYS_MASK);
+    pd[pd_idx] = (pd[pd_idx] & phys_mask);
     pd[pd_idx] |= (MMU_PRESENT | MMU_HUGE_PAGE | mmu_flags);
     tlb_invalidate(virt_addr);
 
@@ -442,7 +448,7 @@ mm_result_t change_page_flags(void* root_table, void* virt_addr,
   }
 
   // Level 1 (PT)
-  uint64_t* pt = phys_to_virt((void*)(pd[pd_idx] & PHYS_MASK));
+  uint64_t* pt = phys_to_virt((void*)(pd[pd_idx] & phys_mask));
   uint16_t pt_idx = PT_INDEX((uint64_t)virt_addr);
 
   // check if the entry is present
@@ -450,7 +456,7 @@ mm_result_t change_page_flags(void* root_table, void* virt_addr,
     return MM_ERR_NOT_MAPPED;
   }
 
-  pt[pt_idx] = (pt[pt_idx] & PHYS_MASK);
+  pt[pt_idx] = (pt[pt_idx] & phys_mask);
   pt[pt_idx] |= (mmu_flags | MMU_PRESENT);
   tlb_invalidate(virt_addr);
 
@@ -495,13 +501,15 @@ mm_result_t remap_page(void* root_table, void* virt_addr, void* new_phys_addr,
   uint64_t* pml4 = (uint64_t*)root_table;
   uint16_t pml4_idx = PML4_INDEX((uint64_t)virt_addr);
 
+  const uint64_t phys_mask = mm_get_phys_mask();
+
   // check if the entry is present
   if (!(pml4[pml4_idx] & MMU_PRESENT)) {
     return MM_ERR_NOT_MAPPED;
   }
 
   // Level 3 (PDPT)
-  uint64_t* pdpt = phys_to_virt((void*)(pml4[pml4_idx] & PHYS_MASK));
+  uint64_t* pdpt = phys_to_virt((void*)(pml4[pml4_idx] & phys_mask));
   uint16_t pdpt_idx = PDPT_INDEX((uint64_t)virt_addr);
 
   // check if the entry is present
@@ -516,8 +524,8 @@ mm_result_t remap_page(void* root_table, void* virt_addr, void* new_phys_addr,
       return MM_ERR_INVALID_FLAGS;
     }
 
-    *old_phys_addr = pdpt[pdpt_idx] & PHYS_MASK;
-    pdpt[pdpt_idx] = ((uint64_t)new_phys_addr & PHYS_MASK);
+    *old_phys_addr = pdpt[pdpt_idx] & phys_mask;
+    pdpt[pdpt_idx] = ((uint64_t)new_phys_addr & phys_mask);
     pdpt[pdpt_idx] |= (MMU_PRESENT | MMU_HUGE_PAGE | mmu_flags);
 
     // propagate the user flags to the parent tables
@@ -529,7 +537,7 @@ mm_result_t remap_page(void* root_table, void* virt_addr, void* new_phys_addr,
   }
 
   // Level 2 (PD)
-  uint64_t* pd = phys_to_virt((void*)(pdpt[pdpt_idx] & PHYS_MASK));
+  uint64_t* pd = phys_to_virt((void*)(pdpt[pdpt_idx] & phys_mask));
   uint16_t pd_idx = PD_INDEX((uint64_t)virt_addr);
 
   // check if the entry is present
@@ -544,8 +552,8 @@ mm_result_t remap_page(void* root_table, void* virt_addr, void* new_phys_addr,
       return MM_ERR_INVALID_FLAGS;
     }
 
-    *old_phys_addr = pd[pd_idx] & PHYS_MASK;
-    pd[pd_idx] = ((uint64_t)new_phys_addr & PHYS_MASK);
+    *old_phys_addr = pd[pd_idx] & phys_mask;
+    pd[pd_idx] = ((uint64_t)new_phys_addr & phys_mask);
     pd[pd_idx] |= (MMU_PRESENT | MMU_HUGE_PAGE | mmu_flags);
 
     // propagate the user flags to the parent tables
@@ -560,7 +568,7 @@ mm_result_t remap_page(void* root_table, void* virt_addr, void* new_phys_addr,
   }
 
   // Level 1 (PT)
-  uint64_t* pt = phys_to_virt((void*)(pd[pd_idx] & PHYS_MASK));
+  uint64_t* pt = phys_to_virt((void*)(pd[pd_idx] & phys_mask));
   uint16_t pt_idx = PT_INDEX((uint64_t)virt_addr);
 
   // check if the entry is present
@@ -568,8 +576,8 @@ mm_result_t remap_page(void* root_table, void* virt_addr, void* new_phys_addr,
     return MM_ERR_NOT_MAPPED;
   }
 
-  *old_phys_addr = pt[pt_idx] & PHYS_MASK;
-  pt[pt_idx] = ((uint64_t)new_phys_addr & PHYS_MASK);
+  *old_phys_addr = pt[pt_idx] & phys_mask;
+  pt[pt_idx] = ((uint64_t)new_phys_addr & phys_mask);
   pt[pt_idx] |= (MMU_PRESENT | mmu_flags);
 
   // propagate the user flags to the parent tables
@@ -843,4 +851,64 @@ void vfree(void* addr) {
   }
 
   vmalloc_direct_free(region);
+}
+
+mm_result_t get_pte_for_address(void* root_table, void* virt_addr,
+                                uintptr_t* entry) {
+  if (root_table == NULL || virt_addr == NULL || entry == NULL) {
+    return MM_ERR_INVALID_ADDRESS;
+  }
+
+  uint64_t* pml4 = (uint64_t*)root_table;
+  uint16_t pml4_idx = PML4_INDEX((uint64_t)virt_addr);
+  const uint64_t phys_mask = mm_get_phys_mask();
+
+  // check if the entry is present
+  if (!(pml4[pml4_idx] & MMU_PRESENT)) {
+    return MM_ERR_NOT_MAPPED;
+  }
+
+  // Level 3 (PDPT)
+  uint64_t* pdpt = phys_to_virt((void*)(pml4[pml4_idx] & phys_mask));
+  uint16_t pdpt_idx = PDPT_INDEX((uint64_t)virt_addr);
+
+  // check if the entry is present
+  if (!(pdpt[pdpt_idx] & MMU_PRESENT)) {
+    return MM_ERR_NOT_MAPPED;
+  }
+
+  // check if the entry is a huge page of 1GB
+  // if it is, return the physical address
+  if (pdpt[pdpt_idx] & MMU_HUGE_PAGE) {
+    *entry = pdpt[pdpt_idx];
+    return MM_SUCCESS;
+  }
+
+  // Level 2 (PD)
+  uint64_t* pd = phys_to_virt((void*)(pdpt[pdpt_idx] & phys_mask));
+  uint16_t pd_idx = PD_INDEX((uint64_t)virt_addr);
+
+  // check if the entry is present
+  if (!(pd[pd_idx] & MMU_PRESENT)) {
+    return MM_ERR_NOT_MAPPED;
+  }
+
+  // check if the entry is a huge page of 2MB
+  // if it is, return the physical address
+  if (pd[pd_idx] & MMU_HUGE_PAGE) {
+    *entry = pd[pd_idx];
+    return MM_SUCCESS;
+  }
+
+  // Level 1 (PT)
+  uint64_t* pt = phys_to_virt((void*)(pd[pd_idx] & phys_mask));
+  uint16_t pt_idx = PT_INDEX((uint64_t)virt_addr);
+
+  // check if the entry is present
+  if (!(pt[pt_idx] & MMU_PRESENT)) {
+    return MM_ERR_NOT_MAPPED;
+  }
+
+  *entry = pt[pt_idx];
+  return MM_SUCCESS;
 }

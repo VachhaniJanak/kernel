@@ -36,6 +36,7 @@ target_compile_options(${CMAKE_PROJECT_NAME}.elf PRIVATE
     -mgeneral-regs-only
     -mcmodel=kernel
     -m64
+    -fno-omit-frame-pointer
 
 
     # Warnings

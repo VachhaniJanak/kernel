@@ -13,6 +13,8 @@
 #define MM_SIZE_XMB(s) ((s) * MM_SIZE_1MB)
 #define MM_SIZE_XGB(s) ((s) * MM_SIZE_1GB)
 
+#define MM_X86_64_PTE_COW (1ULL << 9)
+
 #define MM_DEFAULT_PAGE_SIZE 4096
 
 typedef enum {
@@ -24,6 +26,7 @@ typedef enum {
   MM_FLAG_4KB = 1 << 4,
   MM_FLAG_2MB = 1 << 5,
   MM_FLAG_1GB = 1 << 6,
+  MM_FLAG_COW = 1 << 7,
 } mm_flags_t;
 
 typedef enum {
@@ -106,3 +109,7 @@ mm_result_t mm_verify_process_addr(void* virt_addr);
 mm_result_t mm_map_io_address(uintptr_t* virt_addr, void* phys_addr);
 
 mm_result_t mm_get_current_mapping(void* virt_addr, uintptr_t* phys_addr);
+
+mm_flags_t mm_get_mm_flags(uint64_t mmu_flags);
+
+uint64_t mm_get_phys_mask(void);

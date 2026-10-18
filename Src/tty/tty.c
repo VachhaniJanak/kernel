@@ -36,7 +36,6 @@ void tty_init(void) {
 
   // Initialize the TTY input system
   tty_write("Welcome to the TTY!\n\n");
-  tty_write("> ");  // Print a prompt
 }
 
 static int dev_console_write(struct devfs_device* dev, const void* buffer,

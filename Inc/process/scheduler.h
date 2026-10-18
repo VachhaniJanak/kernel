@@ -59,17 +59,25 @@ typedef struct thread_s {
   uint32_t signal_mask;
 } thread_t;
 
+typedef struct thread_queue_s {
+  thread_t* head;
+  thread_t* tail;
+  size_t count;
+  spinlock_t lock;
+} thread_queue_t;
+
 typedef struct process_s {
   size_t pid;
-  size_t parent_pid;
   char name[PROCESS_NAME_LEN];
   uintptr_t page_table;
   struct thread_s* thread_list_head;
+
   struct vma_s* vma_head;
   struct vma_s* vma_tail;
   struct vma_s* heap_vma;
-  uintptr_t brk;
   struct vma_s* mmap_vma;
+
+  uintptr_t brk;
 
   struct process_s* prev;
   struct process_s* next;
@@ -80,14 +88,15 @@ typedef struct process_s {
   spinlock_t lock;
   struct file** open_files;
   int exit_code;
-} process_t;
 
-typedef struct thread_queue_s {
-  thread_t* head;
-  thread_t* tail;
-  size_t count;
-  spinlock_t lock;
-} thread_queue_t;
+  struct process_s* parent;
+  struct process_s* children;
+  struct process_s* sibling_prev;
+  struct process_s* sibling_next;
+
+  // Queue of threads waiting for this process to exit
+  thread_queue_t wait_queue;
+} process_t;
 
 // This structure holds data specific to ONE CPU core.
 typedef struct cpu_core_s {

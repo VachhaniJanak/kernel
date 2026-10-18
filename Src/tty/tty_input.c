@@ -44,14 +44,12 @@ static inline void tty_process_keyboard_event(kbd_key_event_t event) {
     if (event.unicode == 'c' || event.unicode == 'C') {
       // Send SIGINT to the running foreground process
       tty_write("^C\n");
-      tty_write("> ");        // Print a prompt after the newline
-      line_buffer_index = 0;  // Clear the buffer
+      line_buffer_index = 0; // Clear the buffer
       return;
     }
 
     if (event.unicode == 'l' || event.unicode == 'L') {
       tty_clear_screen();
-      tty_write("> ");  // Print a prompt after clearing the screen
       return;
     }
   }
@@ -59,7 +57,7 @@ static inline void tty_process_keyboard_event(kbd_key_event_t event) {
   // Handle Backspace
   if (event.keycode == KEY_BACKSPACE) {
     if (line_buffer_index > 0) {
-      line_buffer_index--;  // Delete the character from the line buffer
+      line_buffer_index--; // Delete the character from the line buffer
 
       // Visually erase the character on the screen:
       tty_putchar('\b');
@@ -72,7 +70,6 @@ static inline void tty_process_keyboard_event(kbd_key_event_t event) {
   // Handle Enter Key
   if (event.keycode == KEY_ENTER) {
     tty_putchar('\n');
-    tty_write("> ");
 
     // Terminate the string
     line_buffer[line_buffer_index++] = '\n';
@@ -99,7 +96,7 @@ static inline void tty_process_keyboard_event(kbd_key_event_t event) {
   }
 }
 
-void tty_kdb_event_read_thread(void* arg) {
+void tty_kdb_event_read_thread(void *arg) {
   UNUSED(arg);
 
   kbd_key_event_t events = {0};
@@ -115,7 +112,7 @@ void tty_kdb_event_read_thread(void* arg) {
   kbd_release();
 }
 
-int tty_read_input(char* buffer, size_t length) {
+int tty_read_input(char *buffer, size_t length) {
   if (!buffer || length == 0) {
     return -1;
   }

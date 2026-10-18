@@ -29,3 +29,13 @@ void sys_mprotect(syscall_frame_t* frame);
 int kprocess_add_basic_fd(process_t* process);
 
 void sys_fork(syscall_frame_t* frame);
+
+void sys_waitpid(syscall_frame_t* frame);
+
+void sys_execve(syscall_frame_t* frame);
+
+void process_add_child(process_t* parent, process_t* child);
+
+void process_remove_child(process_t* parent, process_t* child);
+
+process_t* process_get_child_by_pid(process_t* parent, size_t pid);

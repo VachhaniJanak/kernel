@@ -18,3 +18,4 @@ void cleaner_init(void);
 
 void cleaner_add_process(process_t *process);
 
+void reaper_release_resources(process_t* process);

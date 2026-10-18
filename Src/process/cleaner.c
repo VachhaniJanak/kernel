@@ -7,6 +7,7 @@
 #include <platform/attributes.h>
 #include <process/cleaner.h>
 #include <process/locks.h>
+#include <process/process.h>
 #include <process/scheduler.h>
 #include <process/thread.h>
 #include <stdbool.h>
@@ -75,13 +76,7 @@ static process_t *queue_pop(struct reaper_state_s *queue) {
 }
 
 static inline void reaper_cleanup_process(process_t *process) {
-  if (!process) {
-    return;
-  }
-
-  // Perform cleanup operations for the process
-  const size_t page_size = mm_get_page_size();
-  uintptr_t root_table = (uintptr_t)phys_to_virt((void *)process->page_table);
+  process_remove_child(process->parent, process);
 
   thread_t *current_thread = process->thread_list_head;
 
@@ -99,8 +94,67 @@ static inline void reaper_cleanup_process(process_t *process) {
     kfree(temp_thread);
   }
 
-  // Free the vma structures
-  // user stack free with vma structure
+  // free process struct
+  kfree(process);
+}
+
+// Reaper thread function to clean up terminated processes
+static void reaper_thread(void *arg) {
+  UNUSED(arg);
+
+  while (1) {
+    process_t *target = queue_pop(&reaper_state);
+
+    if (target) {
+      reaper_cleanup_process(target);
+      continue;
+    }
+
+    waitqueue_wait(&reaper_state.wait_queue);
+  }
+}
+
+void cleaner_init(void) {
+  spinlock_init(&reaper_state.lock);
+  waitqueue_init(&reaper_state.wait_queue);
+
+  reaper_state.head = NULL;
+  reaper_state.tail = NULL;
+
+  int result = kthread_create("reaper", NULL, reaper_thread, NULL);
+
+  if (result < 0) {
+    log_error("Failed to create reaper thread");
+  }
+}
+
+void cleaner_add_process(process_t *process) {
+  queue_push(&reaper_state, process);
+  waitqueue_wake(&reaper_state.wait_queue);
+}
+
+static void process_close_files(process_t *process) {
+  if (!process->open_files) {
+    return;
+  }
+
+  for (size_t i = 0; i < MAX_SYSTEM_OPEN_FILES; i++) {
+    if (!process->open_files[i]) {
+      continue;
+    }
+
+    fs_close(process->open_files[i]);
+    process->open_files[i] = NULL;
+  }
+
+  kfree(process->open_files);
+  process->open_files = NULL;
+}
+
+static void process_release_address_space(process_t *process) {
+  const size_t page_size = mm_get_page_size();
+  uintptr_t root_table = (uintptr_t)phys_to_virt((void *)process->page_table);
+
   struct vma_s *current_vma = process->vma_head;
 
   while (current_vma) {
@@ -143,56 +197,44 @@ static inline void reaper_cleanup_process(process_t *process) {
   if (process->page_table) {
     pmm_free(&mm_state.pmm_state, (void *)process->page_table);
   }
-
-  // free the open files array
-  if (process->open_files) {
-    // Close all open files
-    for (size_t i = 0; i < MAX_SYSTEM_OPEN_FILES; i++) {
-      if (!process->open_files[i]) {
-        continue;
-      }
-
-      fs_close(process->open_files[i]);
-    }
-
-    kfree(process->open_files);
-  }
-
-  // free process struct
-  kfree(process);
 }
 
-// Reaper thread function to clean up terminated processes
-static void reaper_thread(void *arg) {
-  UNUSED(arg);
+void reaper_release_resources(process_t *process) {
+  unsigned long flags;
+  spinlock_acquire(&process->lock, &flags);
 
+  process->active_threads--;
+
+  if (process->active_threads > 0) {
+    spinlock_release(&process->lock, flags);
+    return;
+  }
+
+  process_close_files(process);
+  process_release_address_space(process);
+
+  // Wake up any threads waiting for this process to exit
   while (1) {
-    process_t *target = queue_pop(&reaper_state);
+    thread_t *target_thread =
+        scheduler_queue_pop(&process->wait_queue, TASK_READY);
 
-    if (target) {
-      reaper_cleanup_process(target);
-      continue;
+    if (!target_thread) {
+      break;
     }
 
-    waitqueue_wait(&reaper_state.wait_queue);
+    scheduler_queue_push(&scheduler_state.ready_queue, target_thread,
+                         TASK_READY);
   }
-}
 
-void cleaner_init(void) {
-  spinlock_init(&reaper_state.lock);
-  waitqueue_init(&reaper_state.wait_queue);
+  spinlock_release(&process->lock, flags);
 
-  reaper_state.head = NULL;
-  reaper_state.tail = NULL;
+  // add children processes to grandparent process
+  process_t *child = process->children;
 
-  int result = kthread_create("reaper", NULL, reaper_thread, NULL);
-
-  if (result < 0) {
-    log_error("Failed to create reaper thread");
+  while (child) {
+    process_t *next_child = child->sibling_next;
+    process_remove_child(process, child);
+    process_add_child(process->parent, child);
+    child = next_child;
   }
-}
-
-void cleaner_add_process(process_t *process) {
-  queue_push(&reaper_state, process);
-  waitqueue_wake(&reaper_state.wait_queue);
 }

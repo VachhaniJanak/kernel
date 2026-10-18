@@ -54,3 +54,5 @@ bool vma_add_nullspace(process_t* process, uintptr_t start, uintptr_t end);
 
 bool vma_find_gap(vma_t* vma_head, bool reverse, uintptr_t size,
                   uintptr_t* gap_start);
+
+void vma_detach(process_t* process, vma_t* vma);

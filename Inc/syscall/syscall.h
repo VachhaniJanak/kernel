@@ -15,7 +15,9 @@ enum syscall_number {
   SYS_BRK,
   SYS_MPROTECT,
   SYS_COUNT,
-  SYS_FORK
+  SYS_FORK,
+  SYS_WAITPID,
+  SYS_EXECVE,
 };
 
 void syscall_init(void* cpu_local_data);

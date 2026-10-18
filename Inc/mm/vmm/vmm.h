@@ -30,3 +30,6 @@ mm_result_t remap_page(void* root_table, void* virt_addr, void* new_phys_addr,
 void* vmalloc(size_t size, mm_flags_t mm_flags);
 
 void vfree(void* addr);
+
+mm_result_t get_pte_for_address(void* root_table, void* virt_addr,
+                                uintptr_t* entry);

@@ -23,6 +23,8 @@ syscall_handler_t syscall_table[] = {
     [SYS_BRK] = sys_brk,
     [SYS_MPROTECT] = sys_mprotect,
     [SYS_FORK] = sys_fork,
+    [SYS_WAITPID] = sys_waitpid,
+    [SYS_EXECVE] = sys_execve,
 };
 
 void syscall_handler(syscall_frame_t* frame) {

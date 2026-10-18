@@ -205,6 +205,7 @@ uint64_t mm_get_mmu_flags(mm_flags_t flags) {
   if (flags & MM_FLAG_4KB) mmu_flags |= 0;
   if (flags & MM_FLAG_2MB) mmu_flags |= MMU_HUGE_PAGE;
   if (flags & MM_FLAG_1GB) mmu_flags |= MMU_HUGE_PAGE;
+  if (flags & MM_FLAG_COW) mmu_flags |= MM_X86_64_PTE_COW;
 
   return mmu_flags;
 }
@@ -262,3 +263,17 @@ mm_result_t mm_get_current_mapping(void* virt_addr, uintptr_t* phys_addr) {
 
   return MM_SUCCESS;
 }
+
+mm_flags_t mm_get_mm_flags(uint64_t mmu_flags) {
+  mm_flags_t flags = MM_FLAG_NONE;
+
+  if (mmu_flags & MMU_WRITABLE) flags |= MM_FLAG_WRITABLE;
+  if (!(mmu_flags & MMU_NO_EXECUTE)) flags |= MM_FLAG_EXE;
+  if (mmu_flags & MMU_USER_MEMORY) flags |= MM_FLAG_USER;
+  if (mmu_flags & MMU_HUGE_PAGE) flags |= MM_FLAG_2MB;
+  if (mmu_flags & MM_X86_64_PTE_COW) flags |= MM_FLAG_COW;
+
+  return flags;
+}
+
+uint64_t mm_get_phys_mask(void) { return X86_64_PHYS_MASK; }

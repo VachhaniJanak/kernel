@@ -1,3 +1,5 @@
+#include "pagefault.h"
+
 #include <arch/x86_64/interrupt.h>
 #include <arch/x86_64/isr.h>
 #include <arch/x86_64/mmu.h>
@@ -5,6 +7,7 @@
 #include <arch/x86_64/syscall.h>
 #include <fs/fs.h>
 #include <kernel.h>
+#include <libs/string.h>
 #include <mm/kheap/kheap.h>
 #include <mm/mm.h>
 #include <mm/pmm/pmm.h>
@@ -39,7 +42,24 @@
 
 extern struct mm_state_s mm_state;
 
-static inline bool handle_user_page_fault(uintptr_t faulting_address) {
+static void page_fault_debug_print(struct interrupt_ecframe_s* frame,
+                                   uintptr_t faulting_address);
+
+// translate the error code into
+static inline uint64_t translate_page_fault_error(
+    struct interrupt_ecframe_s* frame) {
+  uint64_t error_code = 0;
+
+  if (frame->error_code & MMU_PF_PLV_MASK) error_code |= PF_ERR_PRESENT;
+  if (frame->error_code & MMU_PF_WA_MASK) error_code |= PF_ERR_WRITE;
+  if (frame->error_code & MMU_PF_UM_MASK) error_code |= PF_ERR_USER;
+  if (frame->error_code & MMU_PF_RSVD_MASK) error_code |= PF_ERR_RSVD;
+  if (frame->error_code & MMU_PF_IFETCH_MASK) error_code |= PF_ERR_IFETCH;
+
+  return error_code;
+}
+
+static inline bool handle_user_page_not_present(uintptr_t faulting_address) {
   pflog_debug("User Page Fault Handler:\n");
   const size_t page_size = mm_get_page_size();
   thread_t* current_thread = scheduler_get_current_thread();
@@ -189,80 +209,183 @@ static inline bool handle_user_page_fault(uintptr_t faulting_address) {
   return true;
 }
 
+/*
+  Handle user page-level protection violation.
+*/
+static inline bool handle_user_pl_pv(uintptr_t faulting_address,
+                                     uint64_t error_code) {
+  process_t* current_process = scheduler_get_current_process();
+  // faulting_address = page_align_down(faulting_address, mm_state.page_size);
+
+  uintptr_t root_table =
+      (uintptr_t)phys_to_virt((void*)current_process->page_table);
+
+  if (error_code & PF_ERR_WRITE) {
+    uintptr_t pte = 0;
+    mm_result_t result =
+        get_pte_for_address((void*)root_table, (void*)faulting_address, &pte);
+
+    const uint64_t phys_mask = mm_get_phys_mask();
+    mm_flags_t mm_flags = mm_get_mm_flags(pte);
+    uintptr_t phys_addr = pte & phys_mask;
+
+    if (result != MM_SUCCESS || phys_addr == 0) {
+      return false;
+    }
+
+    if (!(mm_flags & MM_FLAG_COW)) {
+      return false;
+    }
+
+    frame_info_t* frame_info =
+        pmm_get_frame_info(&mm_state.pmm_state, (void*)(phys_addr));
+
+    mm_flags |= MM_FLAG_WRITABLE;
+    mm_flags &= ~MM_FLAG_COW;  // Clear the COW flag
+
+    if (frame_info->refcount == 1) {
+      // Only one reference, just update the PTE to be writable
+      mm_result_t map_result = change_page_flags(
+          (void*)root_table, (void*)faulting_address, mm_flags);
+
+      if (map_result != MM_SUCCESS) {
+        return false;
+      }
+
+    } else {
+      // More than one reference, need to copy the page
+      void* new_phys_page = pmm_alloc(&mm_state.pmm_state, mm_state.page_size);
+
+      if (!new_phys_page) {
+        return false;
+      }
+
+      void* old_virt_page = phys_to_virt((void*)(phys_addr));
+      void* new_virt_page = phys_to_virt(new_phys_page);
+
+      memcpy(new_virt_page, old_virt_page, mm_state.page_size);
+
+      // Update the PTE to point to the new page and make it writable
+      uintptr_t existing_page;
+      mm_result_t map_result =
+          remap_page((void*)root_table, (void*)faulting_address, new_phys_page,
+                     &existing_page, mm_flags);
+
+      if (map_result != MM_SUCCESS) {
+        pmm_free(&mm_state.pmm_state, new_phys_page);
+        return false;
+      }
+
+      // Decrement the refcount of the old page
+      pmm_decrement_page_refcount(&mm_state.pmm_state, (void*)(phys_addr));
+    }
+
+    return true;
+  }
+
+  return false;
+}
+
+void user_page_fault_handler(struct interrupt_ecframe_s* frame,
+                             uintptr_t faulting_address, uint64_t error_code) {
+  UNUSED(frame);
+
+  pflog_debug("User Page Fault Handler:\n");
+  thread_t* current_thread = scheduler_get_current_thread();
+  process_t* current_process = current_thread->parent_process;
+
+  pflog_print("  Current process: '%s' (PID: %zu)\n", current_process->name,
+              current_process->pid);
+  pflog_print("  Current thread: '%s' (TID: %zu)\n", current_thread->name,
+              current_thread->tid);
+
+  // check if the faulting address is below the user space base address
+  if (faulting_address < mm_get_user_virtual_base()) {
+    tty_printf("Segmentation fault at address 0x%lx\n", faulting_address);
+    scheduler_terminate_current_process();
+    return;
+  }
+
+  // handle user space page-level protection violation
+  else if (error_code & PF_ERR_PRESENT) {
+    if (handle_user_pl_pv(faulting_address, error_code)) {
+      return;
+    }
+  }
+
+  // handle user space page not present fault
+  else {
+    if (handle_user_page_not_present(faulting_address)) {
+      return;
+    }
+  }
+
+  tty_printf("Segmentation fault at address 0x%lx\n", faulting_address);
+  scheduler_terminate_current_process();
+  return;
+}
+
 void page_fault_isr_handler(struct interrupt_ecframe_s* frame) {
   uintptr_t faulting_address = page_fault_addr();
+  uint64_t error_code = translate_page_fault_error(frame);
 
-  pflog_debug("Page Fault Exception:\n");
-  pflog_print("  RIP: 0x%lx\n", frame->rip);
-  pflog_print("  Previous RSP: 0x%lx\n", frame->rsp);
-  pflog_print("  RFLAGS: 0x%lx\n", frame->rflags);
-  pflog_print("  Current RSP: 0x%lx\n", get_stack_top());
-  pflog_print("  Address: 0x%lx\n", faulting_address);
-  pflog_print("  Error code: 0x%lx\n", frame->error_code);
+#ifdef PAGE_FAULT_DEBUG
+  page_fault_debug_print(frame, faulting_address);
+#endif
+
+  // handle user space page fault
+  if (error_code & PF_ERR_USER) {
+    user_page_fault_handler(frame, faulting_address, error_code);
+    return;
+  }
+
+  // handle kernel space page fault
+  log_error("kernel page fault at address 0x%lx, RIP: 0x%lx", faulting_address,
+            frame->rip);
+  while (1);
+}
+
+static void page_fault_debug_print(struct interrupt_ecframe_s* frame,
+                                   uintptr_t faulting_address) {
+  log_debug("Page Fault Exception:\n");
+  log_print("  RIP: 0x%lx\n", frame->rip);
+  log_print("  Previous RSP: 0x%lx\n", frame->rsp);
+  log_print("  RFLAGS: 0x%lx\n", frame->rflags);
+  log_print("  Current RSP: 0x%lx\n", get_stack_top());
+  log_print("  Address: 0x%lx\n", faulting_address);
+  log_print("  Error code: 0x%lx\n", frame->error_code);
+  log_print("  CS: 0x%lx\n", frame->cs);
+  log_print("  SS: 0x%lx\n", frame->ss);
 
   if (frame->error_code & MMU_PF_PLV_MASK) {
-    pflog_print("  Page-level protection violation\n");
+    log_print("  Page-level protection violation\n");
   } else {
-    pflog_print("  Non-present page\n");
+    log_print("  Non-present page\n");
   }
 
   if (frame->error_code & MMU_PF_WA_MASK) {
-    pflog_print("  Write access\n");
+    log_print("  Write access\n");
   } else {
-    pflog_print("  Read access\n");
+    log_print("  Read access\n");
   }
 
   if (frame->error_code & MMU_PF_UM_MASK) {
-    pflog_print("  User-mode access\n");
+    log_print("  User-mode access\n");
   } else {
-    pflog_print("  Kernel-mode access\n");
+    log_print("  Kernel-mode access\n");
+  }
+
+  if (frame->error_code & MMU_PF_RSVD_MASK) {
+    log_print("  Reserved bit violation\n");
+  } else {
+    log_print("  No reserved bit violation\n");
+  }
+
+  if (frame->error_code & MMU_PF_IFETCH_MASK) {
+    log_print("  Instruction fetch\n");
+  } else {
+    log_print("  Data access\n");
   }
 
   log_newline();
-
-  // handle user space page fault
-  if (frame->error_code & MMU_PF_UM_MASK &&
-      !(frame->error_code & MMU_PF_PLV_MASK)) {
-    if (faulting_address < (uintptr_t)mm_get_user_virtual_base()) {
-      tty_printf(
-          ANSI_COLOR_BRIGHT_RED
-          "Segmentation fault: Invalid user space address 0x%lx\n" ANSI_RESET,
-          faulting_address);
-      log_error(
-          ANSI_COLOR_BRIGHT_RED
-          "Segmentation fault: Invalid user space address 0x%lx\n" ANSI_RESET,
-          faulting_address);
-      scheduler_terminate_current_process();
-      while(1);
-
-#ifdef PAGE_FAULT_DEBUG
-      log_error("Segmentation fault: Invalid user space address 0x%lx",
-                faulting_address);
-#endif
-    }
-
-    if (handle_user_page_fault(faulting_address)) {
-#ifdef PAGE_FAULT_DEBUG
-      log_info("Handled user page fault at address 0x%lx", faulting_address);
-#endif
-      return;
-    }
-
-    log_debug(ANSI_COLOR_BRIGHT_RED
-              "Failed to handle user page fault at address 0x%lx\n" ANSI_RESET,
-              faulting_address);
-    scheduler_terminate_current_process();
-    while(1);
-
-#ifdef PAGE_FAULT_DEBUG
-    log_error("Failed to handle user page fault at address 0x%lx",
-              faulting_address);
-#endif
-  }
-
-  tty_printf("Segmentation fault at address 0x%lx, RIP: 0x%lx",
-             faulting_address, frame->rip);
-  log_error("Segmentation fault at address 0x%lx, RIP: 0x%lx", faulting_address,
-            frame->rip);
-  while (1);
 }

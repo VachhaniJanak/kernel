@@ -1,8 +1,10 @@
 #pragma once
 
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <utils/panic.h>
 
 #include "buddy.h"
 
@@ -21,7 +23,8 @@ typedef struct frame_info_s {
   uint8_t metadata;    // 0-4: order, 5: free/used, 6-7: reserved
   uint8_t page_type;   // Identifies what subsystem owns this page
   uint16_t inuse;      // How many objects are currently allocated
-  uint32_t _reserved;  // Padding to ensure 64-bit alignment for pointers
+  uint16_t refcount;   // Reference count for shared pages
+  uint16_t _reserved;  // Padding to ensure 64-bit alignment for pointers
 
   // --- Subsystem Specific Data (32 bytes) ---
   union {
@@ -52,11 +55,40 @@ struct pmm_state_s {
 
 int pmm_init(struct pmm_state_s* self, size_t page_size, size_t hhdm_offset);
 
+static inline size_t pmm_get_frame_index(struct pmm_state_s* self,
+                                         void* phys_addr) {
+  return (size_t)phys_addr / self->page_size;
+}
+
+static inline frame_info_t* pmm_get_frame_info(struct pmm_state_s* self,
+                                               void* phys_addr) {
+  size_t frame_index = pmm_get_frame_index(self, phys_addr);
+  return &self->metadata[frame_index];
+}
+
 static inline void* pmm_alloc(struct pmm_state_s* self, size_t size) {
-  return buddy_alloc(&self->buddy_object, size);
+  void* phys_addr = buddy_alloc(&self->buddy_object, size);
+
+  if (phys_addr != NULL) {
+    frame_info_t* frame_info = pmm_get_frame_info(self, phys_addr);
+    frame_info->refcount = 1;
+  }
+
+  return phys_addr;
 }
 
 static inline void pmm_free(struct pmm_state_s* self, void* ptr) {
+  frame_info_t* frame_info = pmm_get_frame_info(self, ptr);
+
+  if (frame_info->refcount == 0){
+    kernel_panic("[PMM] Invalid free detected at address 0x%zx", ptr);
+    return;
+  }
+
+  if (__atomic_sub_fetch(&frame_info->refcount, 1, __ATOMIC_SEQ_CST) > 0) {
+    return;  // Still in use, do not free
+  }
+
   buddy_free(&self->buddy_object, ptr);
 }
 
@@ -65,13 +97,14 @@ static inline bool pmm_is_pages_avaliable(struct pmm_state_s* self,
   return self->buddy_object.free_frames >= no_pages;
 }
 
-static inline size_t pmm_get_frame_index(struct pmm_state_s* self,
-                                         void* phys_addr) {
-  return (size_t)phys_addr / self->page_size;
+static inline void pmm_increment_page_refcount(struct pmm_state_s* self,
+                                               void* phys_addr) {
+  frame_info_t* frame_info = pmm_get_frame_info(self, phys_addr);
+  __atomic_add_fetch(&frame_info->refcount, 1, __ATOMIC_SEQ_CST);
 }
 
-static inline frame_info_t* pmm_get_frame_info(struct pmm_state_s* self,
+static inline void pmm_decrement_page_refcount(struct pmm_state_s* self,
                                                void* phys_addr) {
-  size_t frame_index = (size_t)phys_addr / self->page_size;
-  return &self->metadata[frame_index];
+  frame_info_t* frame_info = pmm_get_frame_info(self, phys_addr);
+  __atomic_sub_fetch(&frame_info->refcount, 1, __ATOMIC_SEQ_CST);
 }

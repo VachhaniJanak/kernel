@@ -7,6 +7,7 @@
 #include <mm/utils.h>
 #include <mm/vmm/vmm.h>
 #include <platform/attributes.h>
+#include <process/cleaner.h>
 #include <process/locks.h>
 #include <process/process.h>
 #include <process/scheduler.h>
@@ -14,7 +15,7 @@
 #include <stdatomic.h>
 #include <utils/log.h>
 
-void thread_relase_locks(thread_t* thread) {
+void thread_release_locks(thread_t* thread) {
   mutex_t* mutex_lock = thread->mutex_locks_head;
 
   while (mutex_lock) {
@@ -39,10 +40,7 @@ void thread_relase_locks(thread_t* thread) {
 }
 
 static void kthread_exit(thread_t* thread) {
-  process_t* parent_process = thread->parent_process;
-
-  __atomic_fetch_sub(&parent_process->active_threads, 1, __ATOMIC_SEQ_CST);
-  thread_relase_locks(thread);
+  thread_release_locks(thread);
 
   thread->status = TASK_DEAD;
 
@@ -128,7 +126,7 @@ void kthread_sleep(size_t milliseconds) {
   timer_tick_t wakeup_time = current_time + timer_ms_to_ticks(milliseconds);
 
   current_thread->wakeup_time = wakeup_time;
-  
+
   scheduler_sleep_queue_push(current_thread);
   scheduler_yield();
 }
@@ -207,24 +205,17 @@ static inline void pthread_sleep(size_t milliseconds) {
 
 static inline void pthread_exit(int exit_code) {
   thread_t* current_thread = scheduler_get_current_thread();
-  process_t* parent_process = current_thread->parent_process;
+  current_thread->parent_process->exit_code = exit_code;
 
-  parent_process->exit_code = exit_code;
+  thread_release_locks(current_thread);
+  reaper_release_resources(current_thread->parent_process);
 
-  if (__atomic_sub_fetch(&parent_process->active_threads, 1,
-                         __ATOMIC_SEQ_CST) == 0) {
-    scheduler_mark_process_as_dead(current_thread->parent_process);
-  }
-
-  thread_relase_locks(current_thread);
   current_thread->status = TASK_DEAD;
 
   scheduler_yield();
 }
 
-void thread_exit(int exit_code) {
-  pthread_exit(exit_code);
-}
+void thread_exit(int exit_code) { pthread_exit(exit_code); }
 
 static inline int pthread_join(size_t tid) {
   thread_t* current_thread = scheduler_get_current_thread();
