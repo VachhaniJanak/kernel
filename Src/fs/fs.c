@@ -6,6 +6,7 @@
 #include <fs/tmpfs/tmpfs.h>
 #include <libs/string.h>
 #include <mm/kheap/kheap.h>
+#include <process/scheduler.h>
 #include <process/locks.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -30,6 +31,7 @@ static spinlock_t dcache_lock;
 static struct inode* dev_dir_inode = NULL;
 
 static void dcache_push(struct dentry* dentry);
+static struct file* fs_open_dir(const char* path);
 
 struct mount_ops* get_fs_mount_ops(enum filesystem_type fs_type) {
   switch (fs_type) {
@@ -537,14 +539,18 @@ struct inode* fs_resolve_path(const char* path, struct dentry** out_dentry) {
 
   *out_dentry = NULL;
 
-  /*
-   * Only absolute paths are accepted.
-   */
-  if (path[0] != '/') {
-    return NULL;
-  }
-
   struct dentry* current = dcache_root;
+
+  // if relative path.
+  if (path[0] != '/') {
+    process_t* current_process = scheduler_get_current_process();
+
+    if (!current_process || !current_process->cwd) {
+      return NULL;
+    }
+
+    current = current_process->cwd;
+  }
 
   // Acquire a working reference for the root before we start walking
   __atomic_fetch_add(&current->d_refcount, 1, __ATOMIC_SEQ_CST);
@@ -608,15 +614,20 @@ struct inode* fs_resolve_parent(const char* path, char** final_name,
     return NULL;
   }
 
-  /*
-   * This implementation accepts absolute paths only.
-   */
-  if (path[0] != '/') {
-    return NULL;
-  }
-
-  struct inode* root = dcache_root->inode;
   struct dentry* current = dcache_root;
+  struct inode* root = dcache_root->inode;
+
+  // if relative path.
+  if (path[0] != '/') {
+    process_t* current_process = scheduler_get_current_process();
+
+    if (!current_process || !current_process->cwd) {
+      return NULL;
+    }
+
+    current = current_process->cwd;
+    root = current->inode;
+  }
 
   // ACQUIRE WORKING REFERENCE for the start of our traversal
   __atomic_fetch_add(&current->d_refcount, 1, __ATOMIC_SEQ_CST);
@@ -724,6 +735,10 @@ struct inode* fs_resolve_parent(const char* path, char** final_name,
 struct file* fs_open(const char* path, uint32_t flags) {
   if (!path || path[0] == '\0') {
     return NULL;
+  }
+
+  if (flags & VFS_O_DIRECTORY) {
+    return fs_open_dir(path);
   }
 
   /*
@@ -955,7 +970,7 @@ size_t fs_write(struct file* f, const void* buf, size_t len) {
   return bytes_written;
 }
 
-static inline int close(struct file* f) {
+int fs_close(struct file* f) {
   if (!f) {
     return -1;
   }
@@ -976,8 +991,6 @@ static inline int close(struct file* f) {
   remove_file(f);
   return 0;
 }
-
-int fs_close(struct file* f) { return close(f); }
 
 off_t fs_lseek(struct file* f, off_t off, int whence) {
   if (!f || !f->inode) {
@@ -1055,25 +1068,26 @@ int fs_stat(const char* path, struct fs_stat* st) {
   struct inode* file_inode = file_dentry ? file_dentry->inode : NULL;
 
   if (!file_inode) {
-    kfree(filename);
     dcache_push(parent_dentry);
+    dcache_push(file_dentry);
+    kfree(filename);
     return -1;
   }
 
   kfree(filename);
   memset(st, 0, sizeof(*st));
 
-  st->ino = file_inode->inode_num;
-  st->mode = file_inode->mode;
-  st->nlink = 0;
-  st->uid = file_inode->uid;
-  st->gid = file_inode->gid;
-  st->size = file_inode->size;
-  st->blksize = 4096;
-  st->blocks = (file_inode->size + 511) / 512;
-  st->atime = file_inode->atime;
-  st->mtime = file_inode->mtime;
-  st->ctime = file_inode->ctime;
+  st->st_dev = 0;                      // ID of device containing file
+  st->st_ino = file_inode->inode_num;  // Inode number
+  st->st_mode = file_inode->mode;      // File type and mode (permissions)
+  st->st_nlink = 1;                    // Number of hard links
+  st->st_uid = file_inode->uid;        // User ID of owner
+  st->st_gid = file_inode->gid;        // Group ID of owner
+  st->st_rdev = 0;                     // Device ID (if special file)
+  st->st_size = file_inode->size;      // Total size, in bytes
+  st->st_atime = file_inode->atime;    // Time of last access
+  st->st_mtime = file_inode->mtime;    // Time of last modification
+  st->st_ctime = file_inode->ctime;    // Time of last status change
 
   dcache_push(parent_dentry);
   dcache_push(file_dentry);
@@ -1094,13 +1108,20 @@ int fs_unlink(const char* path) {
     kfree(filename);
     return -1;
   }
-
   mutex_acquire(&dir_inode->lock);
 
   struct dentry* target_dentry = lookup_component(dir_dentry, filename);
+
+  if (!target_dentry) {
+    mutex_release(&dir_inode->lock);
+    kfree(filename);
+    dcache_push(dir_dentry);
+    return -1;
+  }
+
   struct inode* target_inode = target_dentry->inode;
 
-  if (!target_dentry || !target_inode) {
+  if (!target_inode) {
     mutex_release(&dir_inode->lock);
     kfree(filename);
     dcache_push(dir_dentry);
@@ -1136,7 +1157,7 @@ int fs_unlink(const char* path) {
   return rc;
 }
 
-struct file* fs_open_dir(const char* path) {
+static struct file* fs_open_dir(const char* path) {
   struct dentry* target_dentry = NULL;
   struct inode* target_inode = fs_resolve_path(path, &target_dentry);
 
@@ -1189,8 +1210,6 @@ int fs_readdir(struct file* file,
 
   return err;
 }
-
-int fs_close_dir(struct file* f) { return close(f); }
 
 int fs_mkdir(const char* path, uint32_t mode) {
   char* child_name = NULL;
@@ -1266,9 +1285,16 @@ int fs_rmdir(const char* path) {
   struct dentry* target_dentry = NULL;
   target_dentry = lookup_component(parent_dentry, child_name);
 
+  if (!target_dentry) {
+    mutex_release(&parent_inode->lock);
+    kfree(child_name);
+    dcache_push(parent_dentry);
+    return -1;
+  }
+
   struct inode* target_inode = target_dentry->inode;
 
-  if (!target_dentry || !target_inode) {
+  if (!target_inode) {
     mutex_release(&parent_inode->lock);
     kfree(child_name);
     dcache_push(parent_dentry);
@@ -1661,4 +1687,72 @@ void debug_dump_open_files(void) {
   }
 
   log_print("==================\n\n");
+}
+
+int fs_fstat(struct file* file, struct fs_stat* st) {
+  struct dentry* file_dentry = file ? file->dentry : NULL;
+  struct inode* file_inode = file_dentry ? file_dentry->inode : NULL;
+
+  if (!file_inode) {
+    return -1;
+  }
+
+  memset(st, 0, sizeof(*st));
+
+  st->st_dev = 0;                      // ID of device containing file
+  st->st_ino = file_inode->inode_num;  // Inode number
+  st->st_mode = file_inode->mode;      // File type and mode (permissions)
+  st->st_nlink = 1;                    // Number of hard links
+  st->st_uid = file_inode->uid;        // User ID of owner
+  st->st_gid = file_inode->gid;        // Group ID of owner
+  st->st_rdev = 0;                     // Device ID (if special file)
+  st->st_size = file_inode->size;      // Total size, in bytes
+  st->st_atime = file_inode->atime;    // Time of last access
+  st->st_mtime = file_inode->mtime;    // Time of last modification
+  st->st_ctime = file_inode->ctime;    // Time of last status change
+
+  return 0;
+}
+
+int fs_make_path(struct dentry* dentry, char* buffer, size_t size) {
+  size_t len = 0;
+  struct dentry* current = dentry;
+
+  while (current && len < size - 1) {
+    size_t name_len = strlen(current->name);
+
+    if (len + name_len + 1 >= size) {
+      return -1;
+    }
+
+    if (current->name[0] == '/') {
+      memmove(buffer + 1, buffer, len);
+      buffer[0] = '/';
+      len += 1;
+      break;
+    }
+
+    memmove(buffer + name_len + 1, buffer, len);
+    memcpy(buffer, current->name, name_len);
+
+    if (len > 0) {
+      buffer[name_len] = '/';
+      len += name_len + 1;
+    } else {
+      len += name_len;
+    }
+
+    current = current->parent;
+  }
+
+  buffer[len] = '\0';
+  return 0;
+}
+
+void fs_dcache_push(struct dentry* dentry) {
+  if (!dentry) {
+    return;
+  }
+
+  dcache_push(dentry);
 }

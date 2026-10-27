@@ -152,13 +152,10 @@ timer_irq_isr:
     push %rax         // Save FS base on the stack
     push %rbx         // Save GS base on the stack
 
-    mov %rsp, %rdi
+    mov %rsp, %rdi 
 
     call timer_irq_isr_handler
     call lapic_eoi
-
-    // Check for pending signals before returning to user space 
-    call check_pending_signals
 
     pop %rbx          // Restore GS base from the stack
     pop %rax          // Restore FS base from the stack
@@ -167,9 +164,13 @@ timer_irq_isr:
     wrgsbase %rbx     // Write the address in RBX to the GS base
     swapgs            // swap back to kernel GS base
 
-    POP_X86_64_REGS
-    testq $3, 8(%rsp)
+    testq $3, 128(%rsp)
     jz .return_to_kernel_timer_irq_isr
+    
+    // Check for pending signals before returning to user space 
+    call check_pending_signals
+
     swapgs
     .return_to_kernel_timer_irq_isr:
+      POP_X86_64_REGS
       iretq  

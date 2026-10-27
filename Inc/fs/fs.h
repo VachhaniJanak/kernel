@@ -7,30 +7,32 @@
 #define off_t int64_t
 
 // File types
-#define VFS_IFMT 0170000
-#define VFS_IFREG 0100000  // regular file
-#define VFS_IFDIR 0040000  // directory
-#define VFS_IFLNK 0120000  // symlink
-#define VFS_IFCHR 0020000  // char device
-#define VFS_IFBLK 0060000  // block device
+#define VFS_IFMT 0170000    // Bitmask for the file type bit fields
+#define VFS_IFSOCK 0140000  // Socket
+#define VFS_IFLNK 0120000   // Symbolic link
+#define VFS_IFREG 0100000   // Regular file (FAT32 files)
+#define VFS_IFBLK 0060000   // Block device
+#define VFS_IFDIR 0040000   // Directory (FAT32 folders)
+#define VFS_IFCHR 0020000   // Character device (TTY/devfs)
+#define VFS_IFIFO 0010000   // FIFO
 
 #define VFS_ISREG(m) (((m) & VFS_IFMT) == VFS_IFREG)
 #define VFS_ISDIR(m) (((m) & VFS_IFMT) == VFS_IFDIR)
 
 // Open flags
-#define VFS_O_RDONLY 0x0000
-#define VFS_O_WRONLY 0x0001
-#define VFS_O_RDWR 0x0002
-#define VFS_O_CREAT 0x0040
-#define VFS_O_EXCL 0x0080
-#define VFS_O_TRUNC 0x0200
-#define VFS_O_APPEND 0x0400
-#define VFS_O_NONBLOCK 0x0800
-#define VFS_O_DSYNC 0x1000
-#define VFS_O_SYNC 0x101000
-#define VFS_O_RSYNC 0x101000
+#define VFS_O_RDONLY 0000
+#define VFS_O_WRONLY 0001
+#define VFS_O_RDWR 0002
+#define VFS_O_CREAT 01000
+#define VFS_O_EXCL 04000
+#define VFS_O_TRUNC 02000
+#define VFS_O_APPEND 010
+#define VFS_O_NONBLOCK 040000
+#define VFS_O_DSYNC 02000
+#define VFS_O_SYNC 020000
+#define VFS_O_RSYNC 0101000
 #define VFS_O_DIRECTORY 0x200000
-#define VFS_O_ACCMODE 0x0003
+#define VFS_O_ACCMODE 0003
 
 // Seek whence
 #define VFS_SEEK_SET 0
@@ -53,6 +55,18 @@
 #define CLEAR_BIT(flags, bit) ((flags) &= ~(bit))
 #define CHECK_BIT(flags, bit) ((flags) & (bit))
 
+#define OTHER_READ 0x0004
+#define OTHER_WRITE 0x0002
+#define OTHER_EXEC 0x0001
+
+#define GROUP_READ 0x0020
+#define GROUP_WRITE 0x0010
+#define GROUP_EXEC 0x0008
+
+#define USER_READ 0x0100
+#define USER_WRITE 0x0080
+#define USER_EXEC 0x0040
+
 enum filesystem_type {
   FS_TYPE_UNKNOWN,
   FS_TYPE_TMPFS,
@@ -66,18 +80,17 @@ struct inode;
 struct dentry;
 
 struct fs_stat {
-  uint32_t dev;
-  uint32_t ino;
-  uint32_t mode;
-  uint32_t nlink;
-  uint32_t uid;
-  uint32_t gid;
-  uint64_t size;
-  uint32_t blksize;
-  uint32_t blocks;
-  uint64_t atime;
-  uint64_t mtime;
-  uint64_t ctime;
+  uint64_t st_dev;    // ID of device containing file
+  uint64_t st_ino;    // Inode number
+  uint32_t st_mode;   // File type and mode (permissions)
+  uint32_t st_nlink;  // Number of hard links
+  uint32_t st_uid;    // User ID of owner
+  uint32_t st_gid;    // Group ID of owner
+  uint64_t st_rdev;   // Device ID (if special file)
+  int64_t st_size;    // Total size, in bytes
+  int64_t st_atime;   // Time of last access
+  int64_t st_mtime;   // Time of last modification
+  int64_t st_ctime;   // Time of last status change
 };
 
 struct file_operations {
@@ -178,6 +191,21 @@ struct mount_table {
   uint32_t count;
 };
 
+struct fs_dirent {
+  unsigned long long d_ino; 
+  long long d_off;          /* 64-bit offset to next structure */
+  unsigned short d_reclen;  /* Size of this entire record */
+  unsigned char d_type;     
+  char d_name[];            
+};
+
+struct fs_readdir_ctx {
+  uint8_t* buffer;
+  size_t buffer_size;
+  size_t next_offset;
+  int bytes_count;
+};
+
 static inline void fs_inc_file_refcount(struct file* f, int increment) {
   if (f) {
     __atomic_add_fetch(&f->f_refcount, increment, __ATOMIC_SEQ_CST);
@@ -217,10 +245,6 @@ int fs_mkdir(const char* path, uint32_t mode);
 
 int fs_rmdir(const char* path);
 
-struct file* fs_open_dir(const char* path);
-
-int fs_close_dir(struct file* file);
-
 int fs_readdir(struct file* file,
                int (*fill)(void*, const char*, uint32_t, uint32_t), void* ctx);
 
@@ -242,3 +266,14 @@ void debug_dump_dcache_lru(void);
 void debug_dump_mount_table(void);
 
 void debug_dump_open_files(void);
+
+int fs_fstat(struct file* file, struct fs_stat* st);
+
+int fs_make_path(struct dentry* dentry, char* buffer, size_t size);
+
+void fs_dcache_push(struct dentry* dentry);
+
+static inline void fs_inc_dentry_refcount(struct dentry* dentry,
+                                          int increment) {
+  __atomic_add_fetch(&dentry->d_refcount, increment, __ATOMIC_SEQ_CST);
+}

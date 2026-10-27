@@ -21,14 +21,18 @@
 
 isr_exit:
   // if lowest 2 bits of CS are 0, then we are returning to Ring 0  
-  testq $3, 8(%rsp)
+  testq $3, 128(%rsp)
   jz return_to_kernel
   
+  // Check for pending signals before returning to user space 
+  call check_pending_signals
+
   // returning to Ring 3
   // Restore the user's GS pointer.
   swapgs
     
 return_to_kernel:
+  POP_X86_64_REGS
   iretq
 
 .global switch_context
@@ -43,13 +47,9 @@ switch_context:
   // Set the TSS stack pointer for ring 0
   mov %rdx, %rdi
   mov $0, %rsi
+
   call set_tss_ring_x_stack
-
-  // Notify the LAPIC that the interrupt has been handled
   call lapic_eoi
-
-  // Check for pending signals before returning to user space 
-  call check_pending_signals
 
   pop %rbx          // Restore GS base from the stack
   pop %rax          // Restore FS base from the stack
@@ -57,8 +57,6 @@ switch_context:
   swapgs            // swap to user GS base
   wrgsbase %rbx     // Write the address in RBX to the GS base
   swapgs            // swap back to kernel GS base
-
-  POP_X86_64_REGS
   
   jmp isr_exit
 
@@ -70,13 +68,9 @@ switch_thread:
   // Set the TSS stack pointer for ring 0
   mov %rsi, %rdi
   mov $0, %rsi
+  
   call set_tss_ring_x_stack
-
-  // Notify the LAPIC that the interrupt has been handled
   call lapic_eoi
-
-  // Check for pending signals before returning to user space 
-  call check_pending_signals
 
   pop %rbx          // Restore GS base from the stack
   pop %rax          // Restore FS base from the stack
@@ -84,7 +78,5 @@ switch_thread:
   swapgs            // swap to user GS base
   wrgsbase %rbx     // Write the address in RBX to the GS base
   swapgs            // swap back to kernel GS base
-
-  POP_X86_64_REGS
   
   jmp isr_exit

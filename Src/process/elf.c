@@ -80,6 +80,20 @@ int load_elf_file(process_t* process, const char* path, void** entry_point) {
     return 1;
   }
 
+  if (!file->dentry){
+#ifdef ELF_LOADER_DEBUG
+    log_error("Failed to get dentry for ELF file\n");
+#endif
+    fs_close(file);
+    return 1;
+  }
+
+  process->exe = file->dentry;  
+  process->cwd = file->dentry->parent;
+
+  fs_inc_dentry_refcount(process->exe, 1);
+  fs_inc_dentry_refcount(process->cwd, 1);
+
   // if (vfs_get_file_size(file) < sizeof(elf64_ehdr_t)) {
   // #ifdef ELF_LOADER_DEBUG
   // log_error("File size is too small to be a valid ELF file\n");

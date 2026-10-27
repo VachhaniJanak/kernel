@@ -224,6 +224,8 @@ static struct inode* create_inode(struct superblock* sb,
 
   memset(inode, 0, sizeof(*inode));
 
+  mode |= 0777;  // Default permissions for simplicity
+
   inode->inode_num = fsb->current_inode_num++;
   inode->mode = mode;
   inode->size = size;

@@ -382,39 +382,41 @@ void register_all_devices(void) {
   }
 }
 
-struct readdir_ctx {
-  char names[32][256];
-  uint32_t inos[32];
-  uint32_t types[32];
-  int count;
-  int capacity;
-  int stop_after; /* return nonzero from fill after N entries */
-};
-
 static int capture_fill(void* ctx, const char* name, uint32_t ino,
                         uint32_t type) {
-  struct readdir_ctx* c = (struct readdir_ctx*)ctx;
-  if (c->count >= c->capacity) return 1; /* buffer full */
+  struct fs_readdir_ctx* c = (struct fs_readdir_ctx*)ctx;
 
-  strcpy(c->names[c->count], name);
-  c->inos[c->count] = ino;
-  c->types[c->count] = type;
-  c->count++;
+  uint8_t* ptr = c->buffer + c->next_offset;
+  struct fs_dirent* d = (struct fs_dirent*)ptr;
 
-  if (c->stop_after > 0 && c->count >= c->stop_after)
-    return 1; /* simulate "caller's buffer full" */
+  size_t reclen = sizeof(struct fs_dirent) + strlen(name) + 1;
+
+  if (c->next_offset + reclen > c->buffer_size) {
+    return 1;
+  }
+
+  d->d_ino = ino;
+  d->d_off = 0;
+  d->d_reclen = reclen;
+  d->d_type = (uint8_t)type;
+  strcpy(d->d_name, name);
+
+  c->next_offset += d->d_reclen;
 
   return 0;
 }
 
 void print_dirs(const char* path) {
-  struct readdir_ctx ctx;
+  static uint8_t buffer[512];
+
+  struct fs_readdir_ctx ctx;
   memset(&ctx, 0, sizeof(ctx));
 
-  ctx.capacity = 32;
-  ctx.stop_after = 0;
+  ctx.buffer = buffer;
+  ctx.buffer_size = sizeof(buffer);
+  ctx.next_offset = 0;
 
-  struct file* dirfile = fs_open_dir(path);
+  struct file* dirfile = fs_open(path, VFS_O_DIRECTORY | VFS_O_RDONLY);
 
   if (!dirfile) {
     log_error("Failed to open directory: %s\n", path);
@@ -423,7 +425,7 @@ void print_dirs(const char* path) {
 
   int rc = fs_readdir(dirfile, capture_fill, &ctx);
 
-  fs_close_dir(dirfile);
+  fs_close(dirfile);
 
   if (rc != 0) {
     log_error("vfs_readdir failed with error: %d\n", rc);
@@ -431,9 +433,10 @@ void print_dirs(const char* path) {
   }
 
   log_print("Directory entries:\n");
-
-  for (int i = 0; i < ctx.count; i++) {
-    log_print("  %s\n", ctx.names[i]);
+  for (size_t offset = 0; offset < ctx.next_offset;) {
+    struct fs_dirent* d = (struct fs_dirent*)(buffer + offset);
+    log_print("  %s\n", d->d_name);
+    offset += d->d_reclen;
   }
   log_print("\n");
 }

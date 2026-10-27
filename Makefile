@@ -8,7 +8,7 @@ MOUNT = /mnt/diskimg
 GRUBCONFIG = test/boot/grub.cfg
 LIMINECONFIG = test/boot
 
-USERPROGRAMS_SRC = test/userprograms/bin
+USERPROGRAMS_SRC = /home/admins/Working-Directory/system_software/custom/os/user/userspace/build/bin
 USERPROGRAMS_DES = userprograms
 
 LOOPDRIVE := $(shell sudo losetup -f)
@@ -92,6 +92,12 @@ loadkernel:
 	@sudo mount $(LOOPDRIVE)$(LOOPDRIVEP2) $(MOUNT)
 	@echo ">> creating dir $(MOUNT)/boot"
 	@sudo mkdir -p $(MOUNT)/boot
+	@echo ">> creating dir $(MOUNT)/dev"
+	@sudo mkdir -p $(MOUNT)/dev
+	@echo ">> creating dir $(MOUNT)/tmp"
+	@sudo mkdir -p $(MOUNT)/tmp
+	@echo ">> creating dir $(MOUNT)/mnt"
+	@sudo mkdir -p $(MOUNT)/mnt
 	@echo ">> coping file $(TARGETELF) to $(MOUNT)/boot"
 	@sudo cp $(TARGETELF) $(MOUNT)/boot
 	@sudo umount $(MOUNT)

@@ -50,7 +50,7 @@
                 ##__VA_ARGS__)
 
 #define LOG_DEBUG(fmt, ...)                                          \
-  serial_printf(ANSI_COLOR_CYAN ANSI_BOLD "[DEBUG] " fmt ANSI_RESET, \
+  serial_printf(ANSI_COLOR_CYAN ANSI_BOLD "[DEBUG] " fmt ANSI_RESET "\r\n", \
                 ##__VA_ARGS__)
 
 #define LOG_INFO(fmt, ...) \

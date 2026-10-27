@@ -150,6 +150,8 @@ mm_result_t mm_allocate_pstack(void* root_table, uintptr_t* stack_base) {
     return MM_ERR_OUT_OF_MEMORY;
   }
 
+  memset(phys_to_virt(phys_page), 0, page_size);  
+
   // Map user stack
   mm_result_t result;
   mm_flags_t flags = MM_FLAG_WRITABLE | MM_FLAG_USER;

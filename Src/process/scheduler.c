@@ -25,6 +25,7 @@
 #include <syscall/syscall.h>
 #include <tty/tty.h>
 #include <utils/log.h>
+#include <utils/panic.h>
 
 struct scheduler_state_s scheduler_state = {0};
 
@@ -81,6 +82,7 @@ thread_t *scheduler_queue_pop(thread_queue_t *queue, task_status_t status) {
   thread->status = status;
   thread->queue_prev = NULL;
   thread->queue_next = NULL;
+  thread->wait_queue = NULL;
 
   queue->count--;
   spinlock_release(&queue->lock, flags);
@@ -346,11 +348,6 @@ static void idle(void *arg) {
 
   while (true) {
     __asm__ volatile("hlt");
-    // log_print("Idle thread running...\n");
-    // volatile uint64_t start = 0;
-    // while (start < 1000000000) {
-    // start++;
-    // }
   }
 }
 
@@ -361,7 +358,7 @@ void test_thread1(void *arg) {
 
   while (1) {
     log_print("Thread 1: Counter = %zu\n", counter++);
-    kthread_sleep(2000);
+    kthread_sleep(30000);
   }
 }
 
@@ -376,11 +373,11 @@ void test_thread2(void *arg) {
   }
 }
 
-static void load_shell(void) {
-  int ret = load_user_process(NULL, "/userprograms/demo.elf", NULL);
+static void load_userspace_init_program(void) {
+  int ret = load_user_process(NULL, "/userprograms/test", NULL);
 
-  if (ret != 0) {
-    log_error("Failed to load user process: %d", ret);
+  if (ret) {
+    kernel_panic("Failed to load user process: %d", ret);
   }
 }
 
@@ -439,7 +436,7 @@ void scheduler_init(void) {
 
   tty_init();
   cleaner_init();
-  load_shell();
+  load_userspace_init_program();
 
 #ifdef SCHEDULER_DEBUG
   log_info("Scheduler initialized");
@@ -452,41 +449,6 @@ void scheduler_init(void) {
                 (uint64_t)idle_thread->kernel_stack_base);
 
   idle(NULL);
-}
-
-void scheduler_terminate_process(process_t *process) {
-  if (!process) {
-    return;
-  }
-
-  unsigned long flags;
-  spinlock_acquire(&process->lock, &flags);
-
-  thread_t *current_thread = process->thread_list_head;
-
-  while (current_thread != NULL) {
-    thread_release_locks(current_thread);
-    current_thread->status = TASK_DEAD;
-    current_thread = current_thread->next;
-  }
-
-  process->active_threads = 0;
-
-  spinlock_release(&process->lock, flags);
-  scheduler_remove_process(process);
-  cleaner_add_process(process);
-  scheduler_yield();
-}
-
-void scheduler_terminate_current_process(void) {
-  thread_t *current_thread = scheduler_get_current_thread();
-
-  if (!current_thread) {
-    return;
-  }
-
-  process_t *current_process = current_thread->parent_process;
-  scheduler_terminate_process(current_process);
 }
 
 void scheduler_queue_remove(thread_queue_t *queue, thread_t *thread) {
@@ -511,6 +473,7 @@ void scheduler_queue_remove(thread_queue_t *queue, thread_t *thread) {
 
   thread->queue_next = NULL;
   thread->queue_prev = NULL;
+  thread->wait_queue = NULL;
   queue->count--;
 
   spinlock_release(&queue->lock, flags);

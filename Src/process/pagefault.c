@@ -302,7 +302,7 @@ void user_page_fault_handler(struct interrupt_ecframe_s* frame,
   // check if the faulting address is below the user space base address
   if (faulting_address < mm_get_user_virtual_base()) {
     tty_printf("Segmentation fault at address 0x%lx\n", faulting_address);
-    scheduler_terminate_current_process();
+    terminate_current_process();
     return;
   }
 
@@ -321,20 +321,21 @@ void user_page_fault_handler(struct interrupt_ecframe_s* frame,
   }
 
   tty_printf("Segmentation fault at address 0x%lx\n", faulting_address);
-  scheduler_terminate_current_process();
+  terminate_current_process();
   return;
 }
 
 void page_fault_isr_handler(struct interrupt_ecframe_s* frame) {
   uintptr_t faulting_address = page_fault_addr();
   uint64_t error_code = translate_page_fault_error(frame);
+  thread_t* current_thread = scheduler_get_current_thread();
 
 #ifdef PAGE_FAULT_DEBUG
   page_fault_debug_print(frame, faulting_address);
 #endif
 
   // handle user space page fault
-  if (error_code & PF_ERR_USER) {
+  if (error_code & PF_ERR_USER || current_thread->status == TASK_SYSCALL_WAIT) {
     user_page_fault_handler(frame, faulting_address, error_code);
     return;
   }

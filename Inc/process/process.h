@@ -12,6 +12,9 @@
 #define USER_CS_REGS 0x23
 #define RFLAGS_IF 0x202
 
+#define WNOHANG 0x00000001
+#define WUNTRACED 0x00000002
+
 process_t* kprocess_init(const char* name);
 
 int load_user_process(process_t** process, const char* elf_path, void* arg);
@@ -39,3 +42,11 @@ void process_add_child(process_t* parent, process_t* child);
 void process_remove_child(process_t* parent, process_t* child);
 
 process_t* process_get_child_by_pid(process_t* parent, size_t pid);
+
+void send_signal(thread_t* target, int signal_num);
+
+void send_signal_to_process(process_t* proc, int signal_num);
+
+void terminate_process(process_t* process);
+
+void terminate_current_process(void);

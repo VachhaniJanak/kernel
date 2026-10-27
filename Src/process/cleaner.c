@@ -213,20 +213,20 @@ void reaper_release_resources(process_t *process) {
   process_close_files(process);
   process_release_address_space(process);
 
-  // Wake up any threads waiting for this process to exit
+  // Wake up threads waiting for this process to exit
   while (1) {
-    thread_t *target_thread =
-        scheduler_queue_pop(&process->wait_queue, TASK_READY);
+    thread_t *thread = scheduler_queue_pop(&process->child_waiters, TASK_READY);
 
-    if (!target_thread) {
+    if (!thread)
       break;
-    }
 
-    scheduler_queue_push(&scheduler_state.ready_queue, target_thread,
-                         TASK_READY);
+    scheduler_queue_push(&scheduler_state.ready_queue, thread, TASK_READY);
   }
 
-  spinlock_release(&process->lock, flags);
+  // wake up any threads waiting for any child process to exit
+  process_t *parent = process->parent;
+  thread_t *thread = scheduler_queue_pop(&parent->waiting_threads, TASK_READY);
+  scheduler_queue_push(&scheduler_state.ready_queue, thread, TASK_READY);
 
   // add children processes to grandparent process
   process_t *child = process->children;
@@ -237,4 +237,6 @@ void reaper_release_resources(process_t *process) {
     process_add_child(process->parent, child);
     child = next_child;
   }
+
+  spinlock_release(&process->lock, flags);
 }

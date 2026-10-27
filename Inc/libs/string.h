@@ -24,6 +24,8 @@ int strncmp(const char *a, const char *b, size_t n);
 char *strcpy(char *dest, const char *src);
 char *strncpy(char *dest, const char *src, size_t n);
 
+void strrev(char* str);
+
 /*
  * String search
  */
@@ -37,4 +39,5 @@ char *strrchr(const char *str, int c);
 
 char *strtok(char *str, const char *delim);
 char *strtok_r(char *str, const char *delim, char **saveptr);
+
 #endif

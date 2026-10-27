@@ -16,7 +16,6 @@ int devfs_close_dir(struct file *file);
 struct inode *devfs_lookup(struct inode *dir, const char *name);
 int devfs_readdir(struct file *file, void *ctx,
                   int (*fill)(void *, const char *, uint32_t, uint32_t));
-int devfs_stat(struct file *file, struct fs_stat *stat);
 int devfs_write(struct file *file, const void *buf, size_t len, size_t *off);
 int devfs_read(struct file *file, void *buf, size_t len, size_t *off);
 int devfs_open(struct file *file);
@@ -34,7 +33,7 @@ static struct file_operations devfs_file_ops = {
     .read = devfs_read,
     .write = devfs_write,
     .close = devfs_close,
-    .stat = devfs_stat,
+    .stat = NULL,
     .create = NULL,
     .unlink = NULL,
     .readdir = NULL, // Not a directory
@@ -47,7 +46,7 @@ static struct file_operations devfs_dir_ops = {
     .read = NULL,  // Can't read directories
     .write = NULL, // Can't write directories
     .close = devfs_close_dir,
-    .stat = devfs_stat,
+    .stat = NULL,
     .readdir = devfs_readdir,
     .lookup = devfs_lookup,
     .mkdir = NULL,
@@ -122,8 +121,10 @@ struct inode *devfs_create_inode(struct superblock *sb, uint32_t type) {
   // Set appropriate operations
   if (type == DEVFS_DIR) {
     inode->fops = &devfs_dir_ops;
+    inode->mode = VFS_IFDIR | 0755; // Directory with default permissions
   } else {
     inode->fops = &devfs_file_ops;
+    inode->mode = VFS_IFREG | 0644; // Regular file with default permissions
   }
 
   return inode;
@@ -587,21 +588,6 @@ int devfs_rmdir(struct inode *dir, const char *name) {
   return 0;
 }
 
-int devfs_stat(struct file *file, struct fs_stat *stat) {
-  if (!file || !file->inode || !stat) {
-    return -1;
-  }
-
-  memset(stat, 0, sizeof(struct fs_stat));
-
-  stat->dev = 0;
-  stat->ino = file->inode->inode_num;
-  stat->mode = file->inode->mode;
-  stat->uid = file->inode->uid;
-  stat->gid = file->inode->gid;
-  return 0;
-}
-
 int devfs_open(struct file *file) {
   UNUSED(file);
   return 0;
@@ -682,6 +668,13 @@ static struct inode *devfs_create(struct inode *dir, struct devfs_device *dev,
 
   new_inode->mode = mode;
   new_di->device = dev;
+
+  if (dev->type == DEVFS_DEVICE_CHAR) {
+    new_inode->mode |= VFS_IFCHR;
+  } else if (dev->type == DEVFS_DEVICE_BLOCK) {
+    new_inode->mode |= VFS_IFBLK;
+  }
+
   return new_inode;
 }
 

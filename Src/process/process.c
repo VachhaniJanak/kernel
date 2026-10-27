@@ -29,6 +29,10 @@
 
 extern struct mm_state_s mm_state;
 
+static uint64_t setup_user_stack(uint64_t user_stack_base,
+                                 char *const user_argv[],
+                                 char *const user_envp[]);
+
 static inline uintptr_t process_mmap(uintptr_t hint_addr, size_t length,
                                      int prot, int flags, int fd,
                                      size_t offset) {
@@ -534,6 +538,10 @@ int load_user_process(process_t **process, const char *elf_path, void *arg) {
     return -1;
   }
 
+  // copy exe and cwd
+  new_process->exe = temp_process.exe;
+  new_process->cwd = temp_process.cwd;
+
   // Copy the VMA list from the temporary process to the new process
   new_process->vma_head = temp_process.vma_head;
   new_process->vma_tail = temp_process.vma_tail;
@@ -558,6 +566,11 @@ int load_user_process(process_t **process, const char *elf_path, void *arg) {
     vma_free(new_process);
     return -1;
   }
+
+  main_thread->user_stack_ptr -= 9 * sizeof(uint64_t);
+  struct scheduler_frame_s* frame = (void*)main_thread->kernel_stack_ptr;
+
+  frame->rsp = main_thread->user_stack_ptr;
 
   // vma_heap and vma_mmap initialization
   // add guard page for heap and mmap
@@ -807,52 +820,147 @@ void sys_fork(syscall_frame_t *frame) {
   frame->syscall_num = (int)child_process->pid;
 }
 
+process_t *process_get_dead_child(process_t *parent) {
+  process_t *child_process = parent->children;
+
+  while (child_process) {
+    if (child_process->active_threads == 0) {
+      return child_process;
+    }
+    child_process = child_process->next;
+  }
+
+  return NULL;
+}
+
 void sys_waitpid(syscall_frame_t *frame) {
-  size_t requested_pid = frame->arg1;
+  int requested_pid = (int)frame->arg1;
   int *status = (int *)frame->arg2;
   int options = frame->arg3;
 
-  thread_t *current_thread = scheduler_get_current_thread();
-  process_t *current_process = current_thread->parent_process;
-
-  // if (requested_pid == -1){
-  // }
-
-  process_t *child_process =
-      process_get_child_by_pid(current_process, requested_pid);
-
-  if (!child_process) {
-    frame->syscall_num = -1; // Child process not found
-    return;
-  }
-
-  if (options) {
-    frame->syscall_num = 0;
-    return;
-  }
-
-  scheduler_queue_push(&child_process->wait_queue, current_thread,
-                       TASK_BLOCKED);
-
-  scheduler_yield();
-
-  const int exit_code = child_process->exit_code;
-  const int child_pid = child_process->pid;
-
-  cleaner_add_process(child_process);
-
-  if (status) {
+  if (!status) {
     mm_result_t result = mm_verify_process_addr(status);
 
     if (result != MM_SUCCESS) {
       frame->syscall_num = -1;
       return;
     }
-
-    *status = exit_code;
   }
 
-  frame->syscall_num = child_pid;
+  thread_t *current_thread = scheduler_get_current_thread();
+  process_t *current_process = current_thread->parent_process;
+
+  if (requested_pid > 0) {
+    while (1) {
+      unsigned long pflags;
+      spinlock_acquire(&current_process->lock, &pflags);
+
+      process_t *child_process =
+          process_get_child_by_pid(current_process, requested_pid);
+
+      if (!child_process) {
+        frame->syscall_num = -1;
+        spinlock_release(&current_process->lock, pflags);
+        return;
+      }
+
+      unsigned long cflags;
+      spinlock_acquire(&child_process->lock, &cflags);
+
+      if (child_process->active_threads == 0) {
+        int exit_code = child_process->exit_code & 0xFF;
+        int pid = child_process->pid;
+
+        if (status) {
+          *status = exit_code << 8;
+        }
+
+        frame->syscall_num = pid;
+        scheduler_remove_process(child_process);
+        process_remove_child(current_process, child_process);
+        cleaner_add_process(child_process);
+
+        spinlock_release(&child_process->lock, cflags);
+        spinlock_release(&current_process->lock, pflags);
+        return;
+      }
+
+      if (options & WNOHANG) {
+        frame->syscall_num = 0;
+
+        spinlock_release(&child_process->lock, cflags);
+        spinlock_release(&current_process->lock, pflags);
+        return;
+      }
+
+      scheduler_queue_push(&child_process->child_waiters, current_thread,
+                           TASK_BLOCKED);
+      spinlock_release(&child_process->lock, cflags);
+      spinlock_release(&current_process->lock, pflags);
+
+      scheduler_yield();
+    }
+  }
+
+  if (requested_pid == -1) {
+    while (1) {
+      unsigned long pflags;
+      spinlock_acquire(&current_process->lock, &pflags);
+
+      if (!current_process->children) {
+        frame->syscall_num = -1;
+        spinlock_release(&current_process->lock, pflags);
+        return;
+      }
+
+      process_t *dead_child = process_get_dead_child(current_process);
+
+      unsigned long cflags;
+      spinlock_acquire(&dead_child->lock, &cflags);
+
+      if (dead_child) {
+        int exit_code = dead_child->exit_code & 0xFF;
+        int pid = dead_child->pid;
+
+        if (status) {
+          *status = exit_code << 8;
+        }
+
+        frame->syscall_num = pid;
+
+        scheduler_remove_process(dead_child);
+        process_remove_child(current_process, dead_child);
+        cleaner_add_process(dead_child);
+
+        spinlock_release(&dead_child->lock, cflags);
+        spinlock_release(&current_process->lock, pflags);
+        return;
+      }
+
+      if (options & WNOHANG) {
+        frame->syscall_num = 0;
+        spinlock_release(&dead_child->lock, cflags);
+        spinlock_release(&current_process->lock, pflags);
+        return;
+      }
+
+      scheduler_queue_push(&current_process->waiting_threads, current_thread,
+                           TASK_BLOCKED);
+      spinlock_release(&dead_child->lock, cflags);
+      spinlock_release(&current_process->lock, pflags);
+      scheduler_yield();
+    }
+  }
+
+  if (requested_pid == 0) {
+    frame->syscall_num = -1;
+    return;
+  }
+
+  if (requested_pid < -1) {
+    frame->syscall_num = -1;
+    return;
+  }
 }
 
 static char *push_string(uint64_t *rsp, const char *str) {
@@ -1053,6 +1161,10 @@ void replace_current_process(process_t *new_process, void *entry_point,
   target_process->heap_vma = new_process->heap_vma;
   target_process->mmap_vma = new_process->mmap_vma;
 
+  // copy exe and cwd from new_process to target_process
+  target_process->exe = new_process->exe;
+  target_process->cwd = new_process->cwd;
+
   if (!vma_add(target_process, stack_vma)) {
     spinlock_release(&target_process->lock, rflags);
     return;
@@ -1163,9 +1275,6 @@ void sys_execve(syscall_frame_t *frame) {
 }
 
 void process_add_child(process_t *parent, process_t *child) {
-  unsigned long flags;
-  spinlock_acquire(&parent->lock, &flags);
-
   child->parent = parent;
   child->sibling_prev = NULL;
   child->sibling_next = parent->children;
@@ -1175,14 +1284,9 @@ void process_add_child(process_t *parent, process_t *child) {
   }
 
   parent->children = child;
-
-  spinlock_release(&parent->lock, flags);
 }
 
 void process_remove_child(process_t *parent, process_t *child) {
-  unsigned long flags;
-  spinlock_acquire(&parent->lock, &flags);
-
   if (child->sibling_prev) {
     child->sibling_prev->sibling_next = child->sibling_next;
   } else {
@@ -1196,24 +1300,44 @@ void process_remove_child(process_t *parent, process_t *child) {
   child->parent = NULL;
   child->sibling_prev = NULL;
   child->sibling_next = NULL;
-
-  spinlock_release(&parent->lock, flags);
 }
 
 process_t *process_get_child_by_pid(process_t *parent, size_t pid) {
-  unsigned long flags;
-  spinlock_acquire(&parent->lock, &flags);
-
   process_t *current_child = parent->children;
 
   while (current_child) {
     if (current_child->pid == pid) {
-      spinlock_release(&parent->lock, flags);
       return current_child;
     }
     current_child = current_child->sibling_next;
   }
 
-  spinlock_release(&parent->lock, flags);
   return NULL; // Child with the specified PID not found
+}
+
+void send_signal_to_process(process_t* proc, int signal_num) {
+  unsigned long flags;
+  spinlock_acquire(&proc->lock, &flags);
+
+  thread_t* current = proc->thread_list_head;
+  
+  while (current != NULL) {
+    if ((current->signal_mask & (1 << signal_num)) == 0) {
+      send_signal(current, signal_num);          
+    }
+    current = current->next;
+  }
+
+  spinlock_release(&proc->lock, flags);
+}
+
+void terminate_process(process_t *process) {
+  send_signal_to_process(process, SIGKILL);
+  scheduler_yield();
+}
+
+void terminate_current_process(void) {
+  thread_t *current_thread = scheduler_get_current_thread();
+  process_t *current_process = current_thread->parent_process;
+  terminate_process(current_process);
 }

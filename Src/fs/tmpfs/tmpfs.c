@@ -23,7 +23,6 @@ int tmpfs_open(struct file *file);
 int tmpfs_read(struct file *file, void *buf, size_t len, size_t *off);
 int tmpfs_write(struct file *file, const void *buf, size_t len, size_t *off);
 int tmpfs_close(struct file *file);
-int tmpfs_stat(struct file *file, struct fs_stat *stat);
 int tmpfs_unlink(struct inode *dir, const char *name);
 struct inode *tmpfs_create(struct inode *dir, const char *name, uint32_t mode);
 void tmpfs_destroy(struct inode *inode);
@@ -39,7 +38,7 @@ static struct file_operations tmpfs_file_ops = {
     .read = tmpfs_read,
     .write = tmpfs_write,
     .close = tmpfs_close,
-    .stat = tmpfs_stat,
+    .stat = NULL,
     .create = NULL,
     .unlink = NULL,
     .readdir = NULL, // Not a directory
@@ -52,7 +51,7 @@ static struct file_operations tmpfs_dir_ops = {
     .read = NULL,  // Can't read directories
     .write = NULL, // Can't write directories
     .close = tmpfs_close_dir,
-    .stat = tmpfs_stat,
+    .stat = NULL,
     .readdir = tmpfs_readdir,
     .lookup = tmpfs_lookup,
     .mkdir = tmpfs_mkdir,
@@ -805,31 +804,6 @@ off_t tmpfs_lseek(struct file *file, off_t offset, int whence) {
 
   file->f_pos = new_pos;
   return new_pos;
-}
-
-int tmpfs_stat(struct file *file, struct fs_stat *stat) {
-  if (!file || !file->inode || !stat) {
-    return -1;
-  }
-
-  memset(stat, 0, sizeof(struct fs_stat));
-
-  struct tmpfs_inode *ti = (struct tmpfs_inode *)file->inode->private_data;
-
-  stat->dev = 0;
-  stat->ino = file->inode->inode_num;
-  stat->mode = file->inode->mode;
-  stat->nlink = ti->nlink;
-  stat->uid = file->inode->uid;
-  stat->gid = file->inode->gid;
-  stat->size = ti->size;
-  stat->blksize = 4096;
-  stat->blocks = (ti->size + 511) / 512;
-  stat->atime = 0; // tmpfs doesn't track times
-  stat->mtime = 0;
-  stat->ctime = 0;
-
-  return 0;
 }
 
 int tmpfs_unlink(struct inode *dir, const char *name) {
