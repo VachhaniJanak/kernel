@@ -9,7 +9,7 @@ GRUBCONFIG = test/boot/grub.cfg
 LIMINECONFIG = test/boot
 
 USERPROGRAMS_SRC = /home/admins/Working-Directory/system_software/custom/os/user/userspace/build/bin
-USERPROGRAMS_DES = userprograms
+USERPROGRAMS_DES = bin
 
 LOOPDRIVE := $(shell sudo losetup -f)
 LOOPDRIVEP1 := "p1"
@@ -132,7 +132,28 @@ run:
 		-drive file=$(IMG),format=raw,if=none,id=disk0 \
 		-device ich9-ahci,id=ahci \
 		-device ide-hd,drive=disk0,bus=ahci.0 \
-		-d int,guest_errors,cpu_reset \
-		-D test/qemu.log \
 		-net none \
 		-serial stdio 
+
+drun:
+	@clear
+	@echo ">> Starting emulator..."
+	@sudo qemu-system-x86_64 \
+		-machine q35 \
+		-cpu qemu64 \
+		-bios /usr/share/edk2/ovmf/OVMF_CODE.fd \
+		-cpu host,+apic \
+		-enable-kvm \
+		-smp 1 \
+		-m 512M\
+		-drive file=$(IMG),format=raw,if=none,id=disk0 \
+		-device ich9-ahci,id=ahci \
+		-device ide-hd,drive=disk0,bus=ahci.0 \
+		-net none \
+		-serial stdio \
+		-S -gdb tcp::1234 \
+		-no-reboot
+
+gdb:
+	@gdb build/kernel.elf \
+		-ex "target remote localhost:1234"

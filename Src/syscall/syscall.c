@@ -46,10 +46,10 @@ syscall_handler_t syscall_table[] = {
     [__NR_getdents] = sys_getdents,
 };
 
+static const size_t num_entries = sizeof(syscall_table) / sizeof(syscall_handler_t);
+  
 void syscall_handler(syscall_frame_t* frame) {
   // log_debug("Syscall number: %lu", frame->syscall_num);
-  const size_t num_entries = sizeof(syscall_table) / sizeof(syscall_handler_t);
-
   if (frame->syscall_num >= num_entries) {
     frame->syscall_num = -ENOSYS;
     return;
@@ -66,6 +66,10 @@ void syscall_handler(syscall_frame_t* frame) {
   thread_t* thread = scheduler_get_current_thread();
 
   thread->status = TASK_SYSCALL_WAIT;
+
+  // log_info("process: %s (PID: %d), thread: %s (TID: %zu) is making syscall number: %lu",
+  //          thread->parent_process->name, thread->parent_process->pid,
+  //          thread->name, thread->tid, frame->syscall_num);
 
   handler(frame);
 

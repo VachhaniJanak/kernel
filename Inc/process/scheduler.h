@@ -97,8 +97,8 @@ typedef struct process_s {
 
   thread_queue_t child_waiters;    // threads waiting for this process to exit
   thread_queue_t waiting_threads;  // threads waiting any child process to exit
-  struct dentry *exe;
-  struct dentry *cwd;
+  struct dentry* exe;
+  struct dentry* cwd;
 } process_t;
 
 // This structure holds data specific to ONE CPU core.
@@ -165,6 +165,10 @@ static inline struct file* scheduler_get_fd(thread_t* thread, int fd) {
   return thread->parent_process->open_files[fd];
 }
 
+static inline void scheduler_yield(void) {
+  __asm__ volatile("int $32" ::: "memory");
+}
+
 void scheduler_init(void);
 
 void scheduler_queue_push(thread_queue_t* queue, thread_t* thread,
@@ -184,6 +188,6 @@ void scheduler_add_thread(process_t* process, thread_t* thread);
 
 void scheduler_sleep_queue_push(thread_t* thread);
 
-void scheduler_yield(void);
-
 void scheduler_queue_remove(thread_queue_t* queue, thread_t* thread);
+
+void scheduler_debug_print(void);

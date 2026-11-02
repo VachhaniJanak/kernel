@@ -907,7 +907,7 @@ size_t fs_read(struct file* f, void* buf, size_t len) {
   }
 
   if (len > 0 && !buf) {
-    return -1;
+    return -2;
   }
 
   /*
@@ -922,11 +922,11 @@ size_t fs_read(struct file* f, void* buf, size_t len) {
   uint32_t access_mode = f->f_flags & VFS_O_ACCMODE;
 
   if (access_mode == VFS_O_WRONLY) {
-    return -1;
+    return -2;
   }
 
   if (!f->inode->fops || !f->inode->fops->read) {
-    return -1;
+    return -3;
   }
 
   mutex_acquire(&f->lock);
@@ -1715,6 +1715,10 @@ int fs_fstat(struct file* file, struct fs_stat* st) {
 }
 
 int fs_make_path(struct dentry* dentry, char* buffer, size_t size) {
+  unsigned long flags;
+
+  spinlock_acquire(&dcache_lock, &flags);
+
   size_t len = 0;
   struct dentry* current = dentry;
 
@@ -1722,6 +1726,7 @@ int fs_make_path(struct dentry* dentry, char* buffer, size_t size) {
     size_t name_len = strlen(current->name);
 
     if (len + name_len + 1 >= size) {
+      spinlock_release(&dcache_lock, flags);
       return -1;
     }
 
@@ -1745,6 +1750,7 @@ int fs_make_path(struct dentry* dentry, char* buffer, size_t size) {
     current = current->parent;
   }
 
+  spinlock_release(&dcache_lock, flags);
   buffer[len] = '\0';
   return 0;
 }

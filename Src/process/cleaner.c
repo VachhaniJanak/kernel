@@ -76,7 +76,7 @@ static process_t *queue_pop(struct reaper_state_s *queue) {
 }
 
 static inline void reaper_cleanup_process(process_t *process) {
-  process_remove_child(process->parent, process);
+  // process_remove_child(process->parent, process);
 
   thread_t *current_thread = process->thread_list_head;
 

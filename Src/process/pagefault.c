@@ -144,9 +144,9 @@ static inline bool handle_user_page_not_present(uintptr_t faulting_address) {
       int ret = fs_read(current_vma->file, buffer, overlap_size);
 
       if (ret < 0) {
-        pflog_error(
-            "Failed to read from file for file-backed VMA at address 0x%lx",
-            faulting_address);
+        log_error(
+            "Failed to read from file for file-backed VMA at address 0x%lx, Error: %d",
+            faulting_address, ret);
 
         kfree(buffer);
         pmm_free(&mm_state.pmm_state, page_phys_addr);
@@ -303,6 +303,8 @@ void user_page_fault_handler(struct interrupt_ecframe_s* frame,
   if (faulting_address < mm_get_user_virtual_base()) {
     tty_printf("Segmentation fault at address 0x%lx\n", faulting_address);
     terminate_current_process();
+    log_info("Segmentation fault at address 0x%lx in process '%s' (PID: %zu)",
+             faulting_address, current_process->name, current_process->pid);
     return;
   }
 
@@ -322,6 +324,8 @@ void user_page_fault_handler(struct interrupt_ecframe_s* frame,
 
   tty_printf("Segmentation fault at address 0x%lx\n", faulting_address);
   terminate_current_process();
+  log_info("Segmentation fault at address 0x%lx in process '%s' (PID: %zu)",
+             faulting_address, current_process->name, current_process->pid);
   return;
 }
 

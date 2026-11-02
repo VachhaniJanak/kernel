@@ -133,6 +133,7 @@ DEFINE_ISR_NE_EOI_X86_64(ahci_irq_isr);
 
 DEFINE_ISR_NE_EOI_X86_64(apic_timer_irq_isr);
 
+DEFINE_ISR_NE_X86_64(simd_fpu_isr);
 
 .global timer_irq_isr
 .extern timer_irq_isr_handler
@@ -142,35 +143,43 @@ timer_irq_isr:
   testq $3, 8(%rsp)
   jz .skip_swapgs_timer_irq_isr
   swapgs
-  .skip_swapgs_timer_irq_isr:
-    PUSH_X86_64_REGS
+.skip_swapgs_timer_irq_isr:
+  PUSH_X86_64_REGS
 
-    rdfsbase %rax     // Read FS base address into register RAX
-    swapgs            // swap to user GS base
-    rdgsbase %rbx     // Read GS base address into register RBX
-    swapgs            // swap back to kernel GS base
-    push %rax         // Save FS base on the stack
-    push %rbx         // Save GS base on the stack
+  // Save the FPU state to the stack
+  sub $512, %rsp
+  fxsave 0(%rsp) 
 
-    mov %rsp, %rdi 
+  rdfsbase %rax     // Read FS base address into register RAX
+  swapgs            // swap to user GS base
+  rdgsbase %rbx     // Read GS base address into register RBX
+  swapgs            // swap back to kernel GS base
+  push %rax         // Save FS base on the stack
+  push %rbx         // Save GS base on the stack
 
-    call timer_irq_isr_handler
-    call lapic_eoi
+  mov %rsp, %rdi
 
-    pop %rbx          // Restore GS base from the stack
-    pop %rax          // Restore FS base from the stack
-    wrfsbase %rax     // Write the address in RAX to the FS base
-    swapgs            // swap to user GS base
-    wrgsbase %rbx     // Write the address in RBX to the GS base
-    swapgs            // swap back to kernel GS base
+  call timer_irq_isr_handler
+  call lapic_eoi
 
-    testq $3, 128(%rsp)
-    jz .return_to_kernel_timer_irq_isr
-    
-    // Check for pending signals before returning to user space 
-    call check_pending_signals
+  pop %rbx          // Restore GS base from the stack
+  pop %rax          // Restore FS base from the stack
+  wrfsbase %rax     // Write the address in RAX to the FS base
+  swapgs            // swap to user GS base
+  wrgsbase %rbx     // Write the address in RBX to the GS base
+  swapgs            // swap back to kernel GS base
 
-    swapgs
-    .return_to_kernel_timer_irq_isr:
-      POP_X86_64_REGS
-      iretq  
+  // Restore the FPU state from the stack
+  fxrstor 0(%rsp)
+  add $512, %rsp
+
+  testq $3, 128(%rsp)
+  jz .return_to_kernel_timer_irq_isr
+  
+  // Check for pending signals before returning to user space 
+  call check_pending_signals
+
+  swapgs
+.return_to_kernel_timer_irq_isr:
+  POP_X86_64_REGS
+  iretq  

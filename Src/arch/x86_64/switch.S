@@ -20,6 +20,10 @@
 .extern check_pending_signals
 
 isr_exit:
+  // Restore the FPU state from the stack
+  fxrstor 0(%rsp)
+  add $512, %rsp
+
   // if lowest 2 bits of CS are 0, then we are returning to Ring 0  
   testq $3, 128(%rsp)
   jz return_to_kernel

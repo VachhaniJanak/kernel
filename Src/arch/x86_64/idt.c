@@ -35,6 +35,7 @@ void init_idt(void) {
   set_idt_entry(33, keyboard_irq_isr, 0, INTERRUPT_GATE, 0);
   set_idt_entry(34, apic_timer_irq_isr, 0, INTERRUPT_GATE, 0);
   set_idt_entry(40, ahci_irq_isr, 0, INTERRUPT_GATE, 0);
+  set_idt_entry(19, simd_fpu_isr, 0, INTERRUPT_GATE, 0);
 
   set_lidt(&idt_ptr);
 }

@@ -568,7 +568,7 @@ int load_user_process(process_t **process, const char *elf_path, void *arg) {
   }
 
   main_thread->user_stack_ptr -= 9 * sizeof(uint64_t);
-  struct scheduler_frame_s* frame = (void*)main_thread->kernel_stack_ptr;
+  struct scheduler_frame_s *frame = (void *)main_thread->kernel_stack_ptr;
 
   frame->rsp = main_thread->user_stack_ptr;
 
@@ -751,7 +751,7 @@ thread_t *clone_thread(thread_t *parent_thread, syscall_frame_t *sys_frame) {
   struct scheduler_frame_s *frame = (void *)child_thread->kernel_stack_ptr;
 
   // Copy general-purpose registers
-  memcpy(&frame->regs, &sys_frame, sizeof(syscall_frame_t));
+  memcpy(&frame->regs, sys_frame, sizeof(syscall_frame_t));
 
   frame->rip = sys_frame->rcx;
   frame->rsp = core->user_sp;
@@ -763,9 +763,15 @@ thread_t *clone_thread(thread_t *parent_thread, syscall_frame_t *sys_frame) {
 
 void sys_fork(syscall_frame_t *frame) {
   process_t *parent_process = scheduler_get_current_process();
-  process_t *child_process = uprocess_init("clone", parent_process);
+
+  unsigned long flags;
+  spinlock_acquire(&parent_process->lock, &flags);
+
+  process_t *child_process =
+      uprocess_init(parent_process->name, parent_process);
 
   if (!child_process) {
+    spinlock_release(&parent_process->lock, flags);
     frame->syscall_num = -1;
     return;
   }
@@ -778,6 +784,7 @@ void sys_fork(syscall_frame_t *frame) {
     vma_t *child_vma = vma_add(child_process, &new_vma);
 
     if (!child_vma) {
+      spinlock_release(&parent_process->lock, flags);
       vma_free(child_process);
       frame->syscall_num = -1;
       return;
@@ -793,11 +800,13 @@ void sys_fork(syscall_frame_t *frame) {
   }
 
   child_process->brk = parent_process->brk;
-  child_process->active_threads = child_process->active_threads;
+  child_process->exe = parent_process->exe;
+  child_process->cwd = parent_process->cwd;
 
   mm_result_t result = mm_create_page_table(&child_process->page_table);
 
   if (result != MM_SUCCESS) {
+    spinlock_release(&parent_process->lock, flags);
     vma_free(child_process);
     frame->syscall_num = -1;
     return;
@@ -808,10 +817,13 @@ void sys_fork(syscall_frame_t *frame) {
       clone_thread(parent_process->thread_list_head, frame);
 
   if (!child_thread) {
+    spinlock_release(&parent_process->lock, flags);
     vma_free(child_process);
     frame->syscall_num = -1;
     return;
   }
+
+  spinlock_release(&parent_process->lock, flags);
 
   scheduler_add_process(child_process);
   scheduler_add_thread(child_process, child_thread);
@@ -838,7 +850,7 @@ void sys_waitpid(syscall_frame_t *frame) {
   int *status = (int *)frame->arg2;
   int options = frame->arg3;
 
-  if (!status) {
+  if (status) {
     mm_result_t result = mm_verify_process_addr(status);
 
     if (result != MM_SUCCESS) {
@@ -900,6 +912,9 @@ void sys_waitpid(syscall_frame_t *frame) {
 
       scheduler_yield();
     }
+
+    frame->syscall_num = -1;
+    return;
   }
 
   if (requested_pid == -1) {
@@ -961,6 +976,8 @@ void sys_waitpid(syscall_frame_t *frame) {
     frame->syscall_num = -1;
     return;
   }
+
+  frame->syscall_num = -1;
 }
 
 static char *push_string(uint64_t *rsp, const char *str) {
@@ -1049,14 +1066,14 @@ void replace_current_process(process_t *new_process, void *entry_point,
   unsigned long rflags;
   spinlock_acquire(&target_process->lock, &rflags);
 
-  thread_t *parent_thread = scheduler_get_current_thread();
+  thread_t *const target_thread = scheduler_get_current_thread();
   const size_t page_size = mm_get_page_size();
 
   // free threads of the target process, and their kernel stacks
   thread_t *current_thread = target_process->thread_list_head;
 
   while (current_thread) {
-    if (current_thread == parent_thread) {
+    if (current_thread == target_thread) {
       current_thread = current_thread->next;
       continue;
     }
@@ -1116,7 +1133,6 @@ void replace_current_process(process_t *new_process, void *entry_point,
       setup_user_stack(stack_vma->vm_end, user_argv, user_envp);
 
   // Free the vma structures
-  // user stack free with vma structure
   struct vma_s *current_vma = target_process->vma_head;
 
   while (current_vma) {
@@ -1163,7 +1179,7 @@ void replace_current_process(process_t *new_process, void *entry_point,
 
   // copy exe and cwd from new_process to target_process
   target_process->exe = new_process->exe;
-  target_process->cwd = new_process->cwd;
+  // target_process->cwd = new_process->cwd;
 
   if (!vma_add(target_process, stack_vma)) {
     spinlock_release(&target_process->lock, rflags);
@@ -1173,30 +1189,27 @@ void replace_current_process(process_t *new_process, void *entry_point,
   target_process->brk = new_process->brk;
   target_process->active_threads = 1;
 
-  parent_thread->pending_signals = 0;
-  parent_thread->signal_mask = 0;
-  parent_thread->user_stack_base = stack_vma->vm_end;
-  parent_thread->user_stack_ptr = user_stack_ptr;
+  thread_t *new_thread = pthread_init(
+      target_thread->name, (void *)user_stack_base, entry_point, NULL);
 
-  uintptr_t addr = parent_thread->kernel_stack_base;
-  size_t frame_size = sizeof(struct scheduler_frame_s);
-  parent_thread->kernel_stack_ptr = addr - frame_size;
-  struct scheduler_frame_s *frame = (void *)parent_thread->kernel_stack_ptr;
+  if (!new_thread) {
+    spinlock_release(&target_process->lock, rflags);
+    log_error("sys_execve: Failed to create new thread for process: %s",
+              target_process->name);
+    return;
+  }
 
-  memset(frame, 0, sizeof(struct scheduler_frame_s));
+  new_thread->user_stack_base = stack_vma->vm_end;
+  new_thread->user_stack_ptr = user_stack_ptr;
 
-  frame->rip = (uint64_t)entry_point;
-  frame->rsp = (uint64_t)parent_thread->user_stack_ptr;
-  frame->rflags = RFLAGS_IF;
-  frame->cs = USER_CS_REGS;
-  frame->ss = USER_SS_REGS;
+  struct scheduler_frame_s *frame = (void *)new_thread->kernel_stack_ptr;
 
-  uintptr_t kernel_stack_ptr = parent_thread->kernel_stack_ptr;
-  uintptr_t kernel_stack_base = parent_thread->kernel_stack_base;
+  frame->rsp = user_stack_ptr;
 
   spinlock_release(&target_process->lock, rflags);
-  switch_context(target_process->page_table, kernel_stack_ptr,
-                 kernel_stack_base);
+  scheduler_add_thread(target_process, new_thread);
+  scheduler_queue_push(&scheduler_state.ready_queue, new_thread, TASK_READY);
+  thread_exit(0);
 }
 
 void sys_execve(syscall_frame_t *frame) {
@@ -1315,15 +1328,15 @@ process_t *process_get_child_by_pid(process_t *parent, size_t pid) {
   return NULL; // Child with the specified PID not found
 }
 
-void send_signal_to_process(process_t* proc, int signal_num) {
+void send_signal_to_process(process_t *proc, int signal_num) {
   unsigned long flags;
   spinlock_acquire(&proc->lock, &flags);
 
-  thread_t* current = proc->thread_list_head;
-  
+  thread_t *current = proc->thread_list_head;
+
   while (current != NULL) {
     if ((current->signal_mask & (1 << signal_num)) == 0) {
-      send_signal(current, signal_num);          
+      send_signal(current, signal_num);
     }
     current = current->next;
   }

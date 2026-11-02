@@ -15,6 +15,24 @@
 #include <stdatomic.h>
 #include <utils/log.h>
 
+void fpu_init_thread_state(fpu_state_t* state) {
+  // Load the CPU's hardcoded default state
+  asm volatile(
+      "fninit \n\t"
+      "fxsave %0"
+      : "=m"(*state)
+      :
+      : "memory");
+
+  // Force the standard System V ABI Control Words
+  // 0x037F = Mask all x87 exceptions, set Double-Extended precision, round to
+  // nearest
+  state->fcw = 0x037F;
+
+  // 0x1F80 = Mask all SIMD exceptions (Denormal, Underflow, Precision, etc.)
+  state->mxcsr = 0x1F80;
+}
+
 void thread_release_locks(thread_t* thread) {
   mutex_t* mutex_lock = thread->mutex_locks_head;
 
@@ -188,6 +206,8 @@ thread_t* pthread_init(const char* name, void* pstack,
   frame->rflags = RFLAGS_IF;
   frame->cs = USER_CS_REGS;
   frame->ss = USER_SS_REGS;
+
+  fpu_init_thread_state(&frame->fpu_state);
 
   thread->tid = scheduler_get_next_tid();
   return thread;

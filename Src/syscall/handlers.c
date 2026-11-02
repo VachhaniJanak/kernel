@@ -172,7 +172,9 @@ void sys_fstat(syscall_frame_t* frame) {
   frame->syscall_num = result;
 }
 
-void sys_exit(syscall_frame_t* frame) { sys_pthread_exit(frame); }
+void sys_exit(syscall_frame_t* frame) { 
+  sys_pthread_exit(frame); 
+}
 
 void sys_kill(syscall_frame_t* frame) {
   int pid = (int)frame->arg1;

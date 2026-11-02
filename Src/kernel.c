@@ -1,3 +1,4 @@
+#include <arch/cpu.h>
 #include <arch/x86_64/apic.h>
 #include <arch/x86_64/gdt.h>
 #include <arch/x86_64/idt.h>
@@ -43,6 +44,8 @@ void kmain(void) {
   gdt_init();
   tss_init();
   init_idt();
+
+  cpu_init();
 
   ENABLE_INT;
 

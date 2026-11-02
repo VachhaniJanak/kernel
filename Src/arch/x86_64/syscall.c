@@ -33,25 +33,8 @@ static void enable_fsgsbase(void) {
   // Set bit 16 (FSGSBASE enable)
   cr4 |= (1 << 16);
 
-  // Set OSFXSR (Bit 9) and OSXMMEXCPT (Bit 10)
-  cr4 |= (1 << 9) | (1 << 10);
-
   // Write back to CR4
   __asm__ volatile("mov %0, %%cr4" ::"r"(cr4));
-
-  // Configure CR0
-  uint64_t cr0;
-  __asm__ volatile("mov %%cr0, %0" : "=r"(cr0));
-
-  // Clear EM (Bit 2) - Disable coprocessor emulation
-  cr0 &= ~(1 << 2);
-
-  // Set MP (Bit 1) - Enable coprocessor monitoring
-  cr0 |= (1 << 1);
-
-  __asm__ volatile("mov %0, %%cr0" ::"r"(cr0));
-
-  __asm__ volatile("fninit"::: "memory");
 }
 
 void x86_64_syscall_init(void* cpu_local_data) {

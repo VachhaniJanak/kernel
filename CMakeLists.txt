@@ -104,6 +104,8 @@ target_sources(${CMAKE_PROJECT_NAME}.elf PRIVATE
     Src/arch/x86_64/syscall.c
     Src/arch/x86_64/syscall.S
     Src/arch/x86_64/switch.S
+    Src/arch/x86_64/x86_64.S
+    Src/arch/cpu.c
 
     Src/drivers/serial/serial.c
     Src/drivers/screen/screen.c

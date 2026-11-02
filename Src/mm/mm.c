@@ -106,13 +106,14 @@ mm_result_t mm_allocate_kstack(uintptr_t* stack_base) {
   size_t stack_size = page_align_up(mm_state.kernel_stack_size, page_size);
 
   // Allocate stack
-  mm_flags_t flags = MM_FLAG_WRITABLE | MM_FLAG_USER;
+  mm_flags_t flags = MM_FLAG_WRITABLE;
   void* addr = vmalloc(stack_size, flags);
 
   if (addr == NULL) {
     return MM_ERR_OUT_OF_MEMORY;
   }
 
+  memset(addr, 0, stack_size);
   *stack_base = (uintptr_t)addr + stack_size;  // Stack grows downwards
   return MM_SUCCESS;
 }
