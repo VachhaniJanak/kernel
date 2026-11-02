@@ -1,3 +1,7 @@
+
+
+
+
 # x86_64 Hobby Kernel
 
 A hobby operating system kernel developed from scratch for x86_64 architecture, using C and Assembly.
@@ -28,7 +32,7 @@ A hobby operating system kernel developed from scratch for x86_64 architecture, 
 
 **Kernel Development & Demonstration Video**
 
-[Watch Project Video](PASTE_YOUR_VIDEO_LINK_HERE)
+[Watch Project Video](https://github.com/user-attachments/assets/1710563f-9fd8-4e43-bcc4-063c10a61271)
 
 ## Build and Run
 
